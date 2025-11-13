@@ -108,14 +108,21 @@ class HelmCollector:
                 adaptation = row_dict.get("Adaptation method") or ""
                 models = row_dict.get("# models")
 
-                abstract_lines = []
+                # 摘要格式优化：截断过长描述，用空格连接避免换行影响飞书表格排版
+                abstract_parts = []
                 if description:
-                    abstract_lines.append(description)
+                    # 截断到200字符，避免摘要过长
+                    desc_clean = description.strip()[:200]
+                    if len(description) > 200:
+                        desc_clean += "..."
+                    abstract_parts.append(desc_clean)
                 if adaptation:
-                    abstract_lines.append(f"适配策略: {adaptation}")
+                    abstract_parts.append(f"适配策略: {adaptation}")
                 if models is not None:
-                    abstract_lines.append(f"覆盖模型数: {models}")
-                abstract = "\n".join(abstract_lines)
+                    abstract_parts.append(f"覆盖模型数: {models}")
+
+                # 用" | "分隔，保持单行显示
+                abstract = " | ".join(abstract_parts) if abstract_parts else None
 
                 candidate_url = self._build_group_url(slug)
                 metadata = {
