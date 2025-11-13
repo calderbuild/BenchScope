@@ -26,16 +26,18 @@ def prefilter(candidate: RawCandidate) -> bool:
         logger.debug("过滤: URL无效 - %s", candidate.url)
         return False
 
-    valid_sources = {"arxiv", "github", "huggingface"}
+    valid_sources = {"arxiv", "github", "huggingface", "helm", "semantic_scholar"}
     if candidate.source not in valid_sources:
         logger.debug("过滤: 来源不在白名单 - %s", candidate.source)
         return False
 
-    text = f"{candidate.title} {candidate.abstract}".lower()
-    matched = [kw for kw in constants.BENCHMARK_KEYWORDS if kw in text]
-    if not matched:
-        logger.debug("过滤: 无关键词命中 - %s", candidate.title)
-        return False
+    # 关键词检查：HELM/Semantic Scholar来源豁免（本身就是Benchmark榜单/学术论文源）
+    if candidate.source not in {"helm", "semantic_scholar"}:
+        text = f"{candidate.title} {candidate.abstract}".lower()
+        matched = [kw for kw in constants.BENCHMARK_KEYWORDS if kw in text]
+        if not matched:
+            logger.debug("过滤: 无关键词命中 - %s", candidate.title)
+            return False
 
     if candidate.source == "github" and not _is_quality_github_repo(candidate):
         return False
