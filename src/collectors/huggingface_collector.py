@@ -92,7 +92,12 @@ class HuggingFaceCollector:
         return any(kw in field for kw in keywords for field in haystacks if field)
 
     def _to_candidate(self, data: dict[str, Any]) -> RawCandidate | None:
-        """将数据集信息转换为内部模型"""
+        """将数据集信息转换为内部模型
+
+        注意：不对发布时间进行过滤
+        原因：优质Benchmark数据集即使发布时间较早也有价值
+        过滤依据：下载量 + 关键词匹配（在_is_benchmark_dataset中实现）
+        """
 
         dataset_id = data.get("id") or data.get("_id")
         if not dataset_id:
@@ -106,8 +111,8 @@ class HuggingFaceCollector:
             or data.get("lastModifiedDate")
         )
 
-        if publish_date and not self._is_within_lookback(publish_date):
-            return None
+        # 不再过滤发布时间 - 让优质数据集不受时间限制
+        # 时间过滤更适合GitHub（关注活跃维护）和arXiv（关注最新研究）
 
         return RawCandidate(
             title=data.get("cardData", {}).get("pretty_name")
