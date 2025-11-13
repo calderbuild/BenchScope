@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import List
 
 import httpx
@@ -29,9 +29,7 @@ class GitHubCollector:
     async def collect(self) -> List[RawCandidate]:
         candidates: List[RawCandidate] = []
 
-        headers = {"Accept": "application/vnd.github+json"}
-        if self.token:
-            headers["Authorization"] = f"Bearer {self.token}"
+        headers = self._build_headers("application/vnd.github+json")
 
         async with httpx.AsyncClient(timeout=self.timeout, headers=headers) as client:
             tasks = [self._fetch_topic(client, topic) for topic in self.topics]
@@ -51,8 +49,11 @@ class GitHubCollector:
     ) -> List[RawCandidate]:
         """调用GitHub搜索API"""
 
+        lookback_date = (datetime.now(timezone.utc) - timedelta(days=constants.GITHUB_LOOKBACK_DAYS)).strftime(
+            "%Y-%m-%d"
+        )
         params = {
-            "q": f"{topic} benchmark in:name,description,readme",
+            "q": f"{topic} benchmark in:name,description,readme pushed:>={lookback_date}",
             "sort": "stars",
             "order": "desc",
             "per_page": self.per_page,
@@ -68,12 +69,15 @@ class GitHubCollector:
             if stars < self.min_stars:
                 continue
 
+            readme_text = await self._fetch_readme(client, repo.get("full_name", ""))
+            abstract = readme_text or repo.get("description")
+
             parsed.append(
                 RawCandidate(
                     title=repo.get("full_name", ""),
                     url=repo.get("html_url", ""),
                     source="github",
-                    abstract=repo.get("description"),
+                    abstract=abstract,
                     github_stars=stars,
                     github_url=repo.get("html_url"),
                     publish_date=self._parse_datetime(repo.get("pushed_at")),
@@ -94,3 +98,24 @@ class GitHubCollector:
             return datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError:
             return None
+
+    async def _fetch_readme(self, client: httpx.AsyncClient, full_name: str) -> str:
+        """获取README文本,用于后续预筛选长度判断"""
+
+        if not full_name:
+            return ""
+
+        url = f"https://api.github.com/repos/{full_name}/readme"
+        headers = self._build_headers("application/vnd.github.raw")
+        try:
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            return resp.text
+        except httpx.HTTPError:
+            return ""
+
+    def _build_headers(self, accept: str) -> dict[str, str]:
+        headers = {"Accept": accept}
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        return headers

@@ -4,11 +4,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any, List, Optional
 
 from huggingface_hub import HfApi
 
+from src.common import constants
 from src.config import Settings, get_settings
 from src.models import RawCandidate
 
@@ -105,6 +106,9 @@ class HuggingFaceCollector:
             or data.get("lastModifiedDate")
         )
 
+        if publish_date and not self._is_within_lookback(publish_date):
+            return None
+
         return RawCandidate(
             title=data.get("cardData", {}).get("pretty_name")
             or data.get("card_data", {}).get("pretty_name")
@@ -138,3 +142,7 @@ class HuggingFaceCollector:
             return datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError:
             return None
+
+    def _is_within_lookback(self, publish_date: datetime) -> bool:
+        now = datetime.now(timezone.utc)
+        return now - publish_date <= timedelta(days=constants.HUGGINGFACE_LOOKBACK_DAYS)
