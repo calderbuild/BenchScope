@@ -52,6 +52,13 @@ class ScoredCandidate:
     relevance_score: float = 0.0  # MGX适配度 (10%)
     reasoning: str = ""
 
+    # Phase 6 新增字段
+    paper_url: Optional[str] = None  # 论文URL (独立于GitHub URL)
+    reproduction_script_url: Optional[str] = None  # 复现脚本URL
+    evaluation_metrics: Optional[List[str]] = None  # 评估指标列表 (如["Accuracy", "F1"])
+    task_type: Optional[str] = None  # 任务类型 (如"Code Generation", "QA")
+    license_type: Optional[str] = None  # 具体License类型 (如"MIT", "Apache-2.0")
+
     @property
     def total_score(self) -> float:
         """加权总分(0-10)"""

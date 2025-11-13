@@ -23,10 +23,12 @@ class FeishuStorage:
     """负责与飞书多维表格交互"""
 
     FIELD_MAPPING: Dict[str, str] = {
+        # 基础信息
         "title": "标题",
         "source": "来源",
         "url": "URL",
         "abstract": "摘要",
+        # 评分维度
         "activity_score": "活跃度",
         "reproducibility_score": "可复现性",
         "license_score": "许可合规",
@@ -36,6 +38,15 @@ class FeishuStorage:
         "priority": "优先级",
         "reasoning": "评分依据",
         "status": "状态",
+        # 新增字段 (Phase 6)
+        "paper_url": "论文 URL",
+        "github_stars": "GitHub Stars",
+        "authors": "作者信息",
+        "publish_date": "开源时间",
+        "reproduction_script_url": "复现脚本链接",
+        "evaluation_metrics": "评价指标摘要",
+        "dataset_url": "数据集 URL",
+        "task_type": "任务类型",
     }
 
     def __init__(self, settings: Optional[Settings] = None) -> None:
@@ -102,11 +113,21 @@ class FeishuStorage:
         return {"Authorization": f"Bearer {self.access_token}"}
 
     def _to_feishu_record(self, candidate: ScoredCandidate) -> dict:
+        """转换ScoredCandidate为飞书记录格式
+
+        注意事项:
+        - URL字段需要对象格式: {"link": "..."}
+        - 日期字段转换为字符串格式: "YYYY-MM-DD"
+        - 数组字段转换为逗号分隔的字符串
+        - 空值使用空字符串或0代替
+        """
         fields = {
+            # 基础信息
             self.FIELD_MAPPING["title"]: candidate.title,
             self.FIELD_MAPPING["source"]: candidate.source,
-            self.FIELD_MAPPING["url"]: {"link": candidate.url},  # 飞书URL字段要求对象格式
+            self.FIELD_MAPPING["url"]: {"link": candidate.url},
             self.FIELD_MAPPING["abstract"]: candidate.abstract or "",
+            # 评分维度
             self.FIELD_MAPPING["activity_score"]: candidate.activity_score,
             self.FIELD_MAPPING["reproducibility_score"]: candidate.reproducibility_score,
             self.FIELD_MAPPING["license_score"]: candidate.license_score,
@@ -114,9 +135,39 @@ class FeishuStorage:
             self.FIELD_MAPPING["relevance_score"]: candidate.relevance_score,
             self.FIELD_MAPPING["total_score"]: round(candidate.total_score, 2),
             self.FIELD_MAPPING["priority"]: candidate.priority,
-            self.FIELD_MAPPING["reasoning"]: candidate.reasoning[:500],
+            self.FIELD_MAPPING["reasoning"]: candidate.reasoning[:500] if candidate.reasoning else "",
             self.FIELD_MAPPING["status"]: "pending",
         }
+
+        # 新增字段 (Phase 6) - 谨慎处理空值
+        if hasattr(candidate, "paper_url") and candidate.paper_url:
+            fields[self.FIELD_MAPPING["paper_url"]] = {"link": candidate.paper_url}
+
+        if hasattr(candidate, "github_stars") and candidate.github_stars is not None:
+            fields[self.FIELD_MAPPING["github_stars"]] = candidate.github_stars
+
+        if hasattr(candidate, "authors") and candidate.authors:
+            # 作者列表转换为逗号分隔字符串，限制长度
+            authors_str = ", ".join(candidate.authors)[:200]
+            fields[self.FIELD_MAPPING["authors"]] = authors_str
+
+        if hasattr(candidate, "publish_date") and candidate.publish_date:
+            fields[self.FIELD_MAPPING["publish_date"]] = candidate.publish_date.strftime("%Y-%m-%d")
+
+        if hasattr(candidate, "reproduction_script_url") and candidate.reproduction_script_url:
+            fields[self.FIELD_MAPPING["reproduction_script_url"]] = {"link": candidate.reproduction_script_url}
+
+        if hasattr(candidate, "evaluation_metrics") and candidate.evaluation_metrics:
+            # 评估指标列表转换为逗号分隔字符串
+            metrics_str = ", ".join(candidate.evaluation_metrics)[:200]
+            fields[self.FIELD_MAPPING["evaluation_metrics"]] = metrics_str
+
+        if hasattr(candidate, "dataset_url") and candidate.dataset_url:
+            fields[self.FIELD_MAPPING["dataset_url"]] = {"link": candidate.dataset_url}
+
+        if hasattr(candidate, "task_type") and candidate.task_type:
+            fields[self.FIELD_MAPPING["task_type"]] = candidate.task_type
+
         return {"fields": fields}
 
     async def get_existing_urls(self) -> set[str]:
