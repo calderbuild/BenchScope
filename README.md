@@ -1,6 +1,23 @@
 # BenchScope
 
-BenchScope 是一个用于自动化收集 AI/Agent Benchmark 情报的异步流水线,负责完成“采集 → 预筛 → 评分 → 存储 → 通知”的闭环。
+**BenchScope** = **Benchmark Intelligence Agent (BIA)**
+
+BenchScope 是一个用于自动化收集 AI/Agent Benchmark 情报的异步流水线,负责完成"采集 → 预筛 → 评分 → 存储 → 通知"的闭环。
+
+## 项目背景
+
+本项目服务于 **MGX (https://mgx.dev)** - DeepWisdom 推出的多智能体协作框架,专注 Vibe Coding(AI原生编程)。
+
+**关于 DeepWisdom**:
+- 🚀 以**基础智能体技术**为核心,致力于解决 Vibe Coding 问题、提升人类生产力
+- 💰 2025年获蚂蚁集团及多家头部美元基金投资**数亿元**,累计融资规模位居国内同领域第一
+- ⭐ 核心开源项目: [MetaGPT](https://github.com/FoundationAgents/MetaGPT) (15万+ stars) + OpenManus
+- 👥 80人团队,核心成员来自 Google、Anthropic、字节、腾讯、阿里、百度、华为、CMU、Berkeley,含 **Claude Code / MCP 核心开发者**
+- 🎯 技术方向: 多智能体协作、Vibe Coding、任务自动化、智能工作流
+
+**相关链接**:
+- 产品地址: https://mgx.dev
+- 开源框架: https://github.com/FoundationAgents/MetaGPT
 
 ## 功能特性
 - 并发采集 arXiv/Semantic Scholar/HELM/GitHub/HuggingFace 数据

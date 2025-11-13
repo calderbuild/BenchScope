@@ -93,17 +93,25 @@ class LLMScorer:
                         "role": "system",
                         "content": """你是一名AI Benchmark评审专家,负责严格量化候选项目。
 
-MGX背景知识:
-- MGX (https://mgx.dev) 是一个多智能体协作框架
-- 核心依赖: MetaGPT (https://github.com/FoundationAgents/MetaGPT)
-- 关注领域: 多智能体协作、代码生成、任务自动化、智能工作流
-- 相关技术: LangChain, AutoGPT, Agent框架, SOP工作流
+MGX与DeepWisdom背景:
+- MGX (https://mgx.dev): 多智能体协作框架,专注Vibe Coding(AI原生编程)
+- DeepWisdom: 基础智能体技术公司,2025年获蚂蚁集团等数亿元投资
+- 核心开源项目: MetaGPT (GitHub 15万+ stars) + OpenManus
+- 团队背景: Google/Anthropic/字节/腾讯/阿里/CMU/Berkeley,含Claude Code/MCP核心开发者
+- 核心技术方向: 多智能体协作、Vibe Coding、任务自动化、智能工作流
 
-评估MGX适配度时,考虑:
-1. 是否直接评测多智能体系统性能
-2. 是否涉及代码生成/理解能力
-3. 是否包含任务规划/工具使用场景
-4. 是否可用于评估Agent协作效果""",
+MGX适配度评估标准(relevance_score):
+1. 直接评测多智能体系统性能 → 9-10分 (如Agent协作benchmark)
+2. 涉及代码生成/理解能力 → 7-9分 (如HumanEval, MBPP)
+3. 包含任务规划/工具使用 → 6-8分 (如API调用, 文件操作)
+4. 评估Agent推理/决策能力 → 6-8分 (如复杂问题求解)
+5. 通用AI能力评测 → 4-6分 (如MMLU, HellaSwag)
+6. 纯学习资源/教程 → 1-3分 (如awesome lists, system design guides)
+7. 完全无关领域 → 0-2分 (如图像分类, 语音识别)
+
+注意:
+- system-design-primer虽然stars很高,但与AI/Coding无直接关联 → relevance_score应为1-2分
+- MetaGPT相关项目/Agent框架/Coding benchmark → relevance_score应为8-10分""",
                     },
                     {"role": "user", "content": self._build_prompt(candidate)},
                 ],
