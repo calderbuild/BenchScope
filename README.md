@@ -3,11 +3,13 @@
 BenchScope 是一个用于自动化收集 AI/Agent Benchmark 情报的异步流水线,负责完成“采集 → 预筛 → 评分 → 存储 → 通知”的闭环。
 
 ## 功能特性
-- 并发采集 arXiv/GitHub Trending/Papers with Code/HuggingFace 数据
+- 并发采集 arXiv/GitHub/HuggingFace 数据
 - 规则预筛去重,过滤 40-60% 噪音
 - 集成 OpenAI gpt-4o-mini + Redis 缓存的 LLM 评分,失败回落规则评分
 - 飞书多维表格批量写入,SQLite 降级备份与回写
 - 飞书 Webhook 推送每日 Top 候选
+- 提供 `scripts/analyze_logs.py` 辅助分析采集/预筛/评分日志
+- `scripts/track_github_releases.py`/`scripts/track_arxiv_versions.py` 跟踪版本更新并自动推送
 - GitHub Actions 定时调度,附日志与备份制品
 
 ## 快速开始
@@ -31,7 +33,7 @@ BenchScope 是一个用于自动化收集 AI/Agent Benchmark 情报的异步流�
 ## 目录结构
 ```
 src/
-  collectors/         # arXiv/GitHub/PwC 采集器
+  collectors/         # arXiv/GitHub/HuggingFace 采集器
   prefilter/          # 规则去重与过滤
   scorer/             # LLM评分 + 规则兜底
   storage/            # 飞书存储 + SQLite 降级
@@ -41,6 +43,10 @@ src/
   main.py             # 流程编排
 config/
   sources.yaml        # 数据源自定义配置
+scripts/
+  analyze_logs.py     # 日志快速分析
+  track_github_releases.py    # GitHub Release 跟踪
+  track_arxiv_versions.py    # arXiv 版本跟踪
 ```
 
 ## 测试
@@ -51,7 +57,8 @@ config/
 - 代码质量: 请在提交前运行 `ruff check` 与 `black .`。
 
 ## 调度
-- `.github/workflows/daily_collect.yml` 会在每天 UTC 02:00 自动运行流水线,并上传日志与 SQLite 备份。
+- `.github/workflows/daily_collect.yml` 每天 UTC 02:00 自动运行采集/评分流水线,并上传日志与 SQLite 备份。
+- `.github/workflows/track_releases.yml` 每天 UTC 10:00 运行 GitHub Release 与 arXiv 版本跟踪任务。
 
 ## 后续规划
 - 引入特征权重配置(`config/weights.yaml`)

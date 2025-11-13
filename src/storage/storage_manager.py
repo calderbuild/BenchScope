@@ -1,7 +1,6 @@
 """存储管理器"""
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import List, Optional
 

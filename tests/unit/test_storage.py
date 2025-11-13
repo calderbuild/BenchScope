@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.config import get_settings
 from src.models import ScoredCandidate
 from src.storage.feishu_storage import FeishuStorage
 from src.storage.sqlite_fallback import SQLiteFallback
@@ -17,7 +16,6 @@ from src.storage.storage_manager import StorageManager
 async def test_sqlite_fallback_roundtrip(tmp_path, monkeypatch):
     """写入后应能读取并标记同步"""
 
-    get_settings.cache_clear()  # type: ignore[attr-defined]
     db_file = tmp_path / "fallback.db"
     monkeypatch.setenv("SQLITE_DB_PATH", str(db_file))
 

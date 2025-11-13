@@ -6,7 +6,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.config import get_settings
 from src.models import RawCandidate
 from src.scorer.llm_scorer import LLMScorer
 
@@ -14,9 +13,7 @@ from src.scorer.llm_scorer import LLMScorer
 @pytest.fixture(autouse=True)
 def ensure_openai_env(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "test-key")
-    get_settings.cache_clear()  # type: ignore[attr-defined]
     yield
-    get_settings.cache_clear()  # type: ignore[attr-defined]
 
 
 @pytest.fixture

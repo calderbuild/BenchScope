@@ -89,8 +89,9 @@ EOF
 
 **当前项目状态**:
 - 设计阶段: ✅ 完成 (PRD 93/100, 架构 94/100)
-- 开发阶段: 🔄 MVP实施中 (预计2周)
+- 开发阶段: ✅ Phase 1-2 已完成, 🔄 Phase 3 优化中
 - 关键决策: 存储层从Notion改为飞书多维表格(主) + SQLite(降级备份)
+- 核心功能: arXiv/GitHub/HuggingFace采集 + URL去重 + LLM评分(GPT-4o) + 飞书存储/通知
 
 **不做的事**：
 - 不做SEO优化（纯内部系统）
@@ -506,8 +507,13 @@ logger.error(f"Notion写入失败: {error}")
   - 14个用户故事,完整验收标准,ROI分析
 - `.claude/specs/benchmark-intelligence-agent/02-system-architecture.md` - 系统架构 (94/100质量)
   - 5层架构详解,完整代码示例,错误处理策略,性能成本分析
-- `.claude/specs/benchmark-intelligence-agent/CODEX-DEVELOPMENT-BRIEF.md` - Codex开发指令
+- `.claude/specs/benchmark-intelligence-agent/CODEX-DEVELOPMENT-BRIEF.md` - Codex开发指令 (Phase 1-2)
   - MVP实施清单,代码规范,测试要求,验收标准
+- `.claude/specs/benchmark-intelligence-agent/CODEX-COMPREHENSIVE-PLAN.md` - **综合开发方案 (Phase 3-5)**
+  - **Phase 3**: 核心优化（GitHub预筛选、时间过滤、PwC移除、日志工具、评分权重）
+  - **Phase 4**: 版本跟踪（GitHub Release、arXiv版本、Leaderboard SOTA）
+  - **Phase 5**: 增强功能（飞书卡片消息、交互按钮）
+  - 详细代码实现、验收标准、测试流程、开发顺序
 
 ### 历史文档
 - `PRD_FINAL.md` - 原始产品需求文档 (已被BMAD PRD取代,仅供参考)
