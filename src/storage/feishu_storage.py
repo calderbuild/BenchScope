@@ -134,6 +134,40 @@ class FeishuStorage:
             raise FeishuAPIError("access_token不存在")
         return {"Authorization": f"Bearer {self.access_token}"}
 
+    @staticmethod
+    def _clean_abstract(text: str | None, max_length: int = 300) -> str:
+        """清理摘要文本，优化飞书表格显示
+
+        - 移除换行符，用空格替代
+        - 清理多余空格
+        - 限制长度
+        - 移除markdown格式符号
+        """
+        if not text:
+            return ""
+
+        # 移除换行符和tab，用空格替代
+        cleaned = text.replace("\n", " ").replace("\r", " ").replace("\t", " ")
+
+        # 清理多余空格
+        cleaned = " ".join(cleaned.split())
+
+        # 移除常见markdown符号
+        for char in ["**", "__", "##", "```"]:
+            cleaned = cleaned.replace(char, "")
+
+        # 限制长度（保留完整单词）
+        if len(cleaned) > max_length:
+            # 截断到max_length-3为...留出空间，然后在最后一个空格处断开
+            truncated = cleaned[:max_length - 3]
+            last_space = truncated.rfind(" ")
+            if last_space > max_length * 0.8:  # 如果最后空格位置合理（不是太靠前）
+                cleaned = truncated[:last_space] + "..."
+            else:  # 否则直接截断
+                cleaned = truncated + "..."
+
+        return cleaned
+
     def _to_feishu_record(self, candidate: ScoredCandidate) -> dict:
         """转换ScoredCandidate为飞书记录格式
 
@@ -142,13 +176,14 @@ class FeishuStorage:
         - 日期字段转换为字符串格式: "YYYY-MM-DD"
         - 数组字段转换为逗号分隔的字符串
         - 空值使用空字符串或0代替
+        - 摘要字段清理换行符和长度，优化表格显示
         """
         fields = {
             # 基础信息
             self.FIELD_MAPPING["title"]: candidate.title,
             self.FIELD_MAPPING["source"]: candidate.source,
             self.FIELD_MAPPING["url"]: {"link": candidate.url},
-            self.FIELD_MAPPING["abstract"]: candidate.abstract or "",
+            self.FIELD_MAPPING["abstract"]: self._clean_abstract(candidate.abstract),
             # 评分维度
             self.FIELD_MAPPING["activity_score"]: candidate.activity_score,
             self.FIELD_MAPPING["reproducibility_score"]: candidate.reproducibility_score,
