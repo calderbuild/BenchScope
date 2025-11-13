@@ -22,12 +22,6 @@ GITHUB_TIMEOUT_SECONDS: Final[int] = 5
 GITHUB_MIN_STARS: Final[int] = 0
 GITHUB_LOOKBACK_DAYS: Final[int] = 30  # 30天窗口，新Benchmark创建频率低
 
-PWC_API_BASE: Final[str] = "https://paperswithcode.com/api/v1"
-PWC_TIMEOUT_SECONDS: Final[int] = 15
-PWC_QUERY_KEYWORDS: Final[list[str]] = ["coding", "agent", "reasoning"]
-PWC_MIN_TASK_PAPERS: Final[int] = 3
-PWC_PAGE_SIZE: Final[int] = 20
-
 # ---- Benchmark 关键词 ----
 BENCHMARK_KEYWORDS: Final[list[str]] = [
     "benchmark",
@@ -58,7 +52,9 @@ HUGGINGFACE_LOOKBACK_DAYS: Final[int] = 14  # 14天窗口，数据集更新频�
 
 # ---- Prefilter 配置 ----
 PREFILTER_SIMILARITY_THRESHOLD: Final[float] = 0.9
-PREFILTER_MIN_GITHUB_STARS: Final[int] = 50
+PREFILTER_MIN_GITHUB_STARS: Final[int] = 10
+PREFILTER_MIN_README_LENGTH: Final[int] = 500
+PREFILTER_RECENT_DAYS: Final[int] = 90
 
 # ---- Scorer 配置 ----
 LLM_DEFAULT_MODEL: Final[str] = "gpt-4o"  # 评分质量优先,月成本<$1完全在预算内
@@ -81,6 +77,13 @@ PRIORITY_MEDIUM_THRESHOLD: Final[int] = 30
 
 # 评分阈值
 MIN_TOTAL_SCORE: Final[float] = 6.0  # 低于6分不入库
+SCORE_WEIGHTS: Final[dict[str, float]] = {
+    "activity": 0.20,
+    "reproducibility": 0.30,
+    "license": 0.20,
+    "novelty": 0.10,
+    "relevance": 0.20,
+}
 
 # ---- 存储与通知 ----
 FEISHU_BATCH_SIZE: Final[int] = 20

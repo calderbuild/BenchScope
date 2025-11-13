@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import List
 
-from src.collectors import ArxivCollector, GitHubCollector, HuggingFaceCollector, PwCCollector
+from src.collectors import ArxivCollector, GitHubCollector, HuggingFaceCollector
 from src.config import Settings, get_settings
 from src.models import RawCandidate
 from src.notifier import FeishuNotifier
@@ -30,7 +30,6 @@ async def main() -> None:
     collectors = [
         ArxivCollector(),
         GitHubCollector(),
-        PwCCollector(),
         HuggingFaceCollector(settings=settings),
     ]
 

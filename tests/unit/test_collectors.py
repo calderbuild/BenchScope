@@ -4,7 +4,6 @@ from __future__ import annotations
 import pytest
 
 from src.collectors.huggingface_collector import HuggingFaceCollector
-from src.config import get_settings
 
 
 @pytest.mark.asyncio
@@ -21,7 +20,6 @@ async def test_huggingface_collector_filters(monkeypatch):
     for key, value in required_env.items():
         monkeypatch.setenv(key, value)
 
-    get_settings.cache_clear()  # type: ignore[attr-defined]
     collector = HuggingFaceCollector()
 
     async def fake_fetch():
