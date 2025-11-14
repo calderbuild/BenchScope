@@ -76,6 +76,9 @@ class GitHubCollector:
             license_info = repo.get("license")
             license_type = license_info.get("name") if license_info else None
 
+            # 提取任务类型（Phase 6字段）
+            task_type = self._extract_task_type(readme_text or repo.get("description", ""))
+
             parsed.append(
                 RawCandidate(
                     title=repo.get("full_name", ""),
@@ -86,6 +89,7 @@ class GitHubCollector:
                     github_url=repo.get("html_url"),
                     publish_date=self._parse_datetime(repo.get("pushed_at")),
                     license_type=license_type,  # Phase 6: License类型（GitHub API返回）
+                    task_type=task_type,         # Phase 6: 任务类型（从README提取）
                     raw_metadata={
                         "topic": topic,
                         "language": repo.get("language"),
@@ -124,3 +128,66 @@ class GitHubCollector:
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
+
+    @staticmethod
+    def _extract_task_type(text: str) -> str | None:
+        """从README或描述中提取任务类型"""
+        if not text:
+            return None
+
+        text_lower = text.lower()
+
+        # 任务类型映射（按优先级排序）
+        task_patterns = {
+            "Code Generation": [
+                "code generation",
+                "codegen",
+                "code synthesis",
+                "program synthesis",
+            ],
+            "Question Answering": [
+                "question answering",
+                "qa benchmark",
+                "reading comprehension",
+            ],
+            "Reasoning": [
+                "reasoning",
+                "chain-of-thought",
+                "logical reasoning",
+                "math reasoning",
+            ],
+            "Tool Use": [
+                "tool use",
+                "tool calling",
+                "function calling",
+                "api calling",
+            ],
+            "Multi-Agent": [
+                "multi-agent",
+                "agent collaboration",
+                "multi agent",
+            ],
+            "Web Automation": [
+                "web automation",
+                "browser automation",
+                "web agent",
+                "web navigation",
+            ],
+            "Code Understanding": [
+                "code understanding",
+                "code comprehension",
+                "code analysis",
+            ],
+            "Text Generation": [
+                "text generation",
+                "summarization",
+                "translation",
+            ],
+        }
+
+        # 匹配第一个出现的任务类型
+        for task_type, patterns in task_patterns.items():
+            if any(pattern in text_lower for pattern in patterns):
+                return task_type
+
+        return None

@@ -199,17 +199,18 @@ class FeishuStorage:
         }
 
         # 三域评分字段写入，保证缺省场景不会抛出异常
-        if candidate.capability_scores:
+        if hasattr(candidate, "capability_scores") and candidate.capability_scores:
             self._inject_capability_scores(fields, candidate)
-        if candidate.risk_scores:
+        if hasattr(candidate, "risk_scores") and candidate.risk_scores:
             self._inject_risk_scores(fields, candidate)
-        if candidate.operational_scores:
+        if hasattr(candidate, "operational_scores") and candidate.operational_scores:
             self._inject_operational_totals(fields, candidate)
 
-        if candidate.risk_level:
+        if hasattr(candidate, "risk_level") and candidate.risk_level:
             fields[self.FIELD_MAPPING["risk_level"]] = candidate.risk_level
 
-        fields[self.FIELD_MAPPING["evaluation_version"]] = candidate.evaluation_version
+        if hasattr(candidate, "evaluation_version"):
+            fields[self.FIELD_MAPPING["evaluation_version"]] = candidate.evaluation_version
 
         # 新增字段 (Phase 6) - 谨慎处理空值
         if hasattr(candidate, "paper_url") and candidate.paper_url:

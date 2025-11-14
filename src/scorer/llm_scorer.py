@@ -91,25 +91,50 @@ class LLMScorer:
                 messages=[
                     {
                         "role": "system",
-                        "content": """你是一名AI Benchmark评审专家,负责严格量化候选项目。
+                        "content": """你是一名AI Benchmark评审专家,负责严格识别和评估真正的Benchmark项目。
+
+**什么是真正的Benchmark（必须同时满足以下4项）**:
+1. ✅ 明确的评测任务定义（如代码生成、问答、推理、Agent规划）
+2. ✅ 标准化测试数据集（test set/eval set，不是demo数据）
+3. ✅ 明确的评估指标（Accuracy/F1/BLEU/Pass@k/Success Rate等）
+4. ✅ 基准结果（baseline performance，如GPT-4得分X%）
+
+**不是Benchmark的项目类型（必须严格排除）**:
+- ❌ Awesome lists / 资源汇总 / curated collections
+- ❌ 工具/库/框架（如Agent框架、API wrapper、工具集）
+- ❌ 教程/课程/学习资料（如system design guides）
+- ❌ Demo/Example项目（仅展示功能，无标准评测）
+- ❌ 数据集（仅提供数据，无评测任务和指标）
 
 MGX技术背景:
 - MGX (https://mgx.dev): 多智能体协作框架,专注Vibe Coding(AI原生编程)
 - 基于MetaGPT开源框架构建
 - 核心技术方向: 多智能体协作与编排、代码生成与理解、工具调用与任务自动化、智能工作流设计
 
-MGX适配度评估标准(relevance_score):
-1. 直接评测多智能体系统性能 → 9-10分 (如Agent协作benchmark)
-2. 涉及代码生成/理解能力 → 7-9分 (如HumanEval, MBPP)
-3. 包含任务规划/工具使用 → 6-8分 (如API调用, 文件操作)
-4. 评估Agent推理/决策能力 → 6-8分 (如复杂问题求解)
-5. 通用AI能力评测 → 4-6分 (如MMLU, HellaSwag)
-6. 纯学习资源/教程 → 1-3分 (如awesome lists, system design guides)
-7. 完全无关领域 → 0-2分 (如图像分类, 语音识别)
+MGX适配度评估标准(relevance_score) - **仅对真Benchmark评分**:
+
+**真正的Benchmark项目**:
+1. 直接评测多智能体系统性能 → 9-10分 (如AgentBench, WebArena)
+2. 代码生成/理解Benchmark → 7-9分 (如HumanEval, MBPP, CodeXGLUE)
+3. 任务规划/工具使用Benchmark → 6-8分 (如ToolBench, API-Bank)
+4. Agent推理/决策Benchmark → 6-8分 (如GSM8K, MATH, ALFWorld)
+5. 通用AI能力Benchmark → 3-5分 (如MMLU, HellaSwag)
+6. 完全无关领域Benchmark → 0-2分 (如图像分类ImageNet, 语音识别LibriSpeech)
+
+**非Benchmark项目（工具/教程/资源汇总）**:
+- 无论stars多高，relevance_score必须≤2分
+- 示例: system-design-primer (stars虽高但是学习资源) → relevance=1分
+- 示例: awesome-chatgpt-prompts (资源汇总) → relevance=1分
+- 示例: langchain (工具库) → relevance=2分
+
+**核心判断逻辑**:
+- 首先判断"是否是真Benchmark"（有评测任务+数据集+指标+基准结果）
+- 如果不是Benchmark → relevance_score自动≤2分，reasoning必须明确说明"不是Benchmark"
+- 如果是真Benchmark → 再按MGX适配度打分
 
 注意:
-- system-design-primer虽然stars很高,但与AI/Coding无直接关联 → relevance_score应为1-2分
-- MetaGPT相关项目/Agent框架/Coding benchmark → relevance_score应为8-10分""",
+- 必须在reasoning中明确说明"是否是真正的Benchmark"
+- 如果缺少评测任务/数据集/指标/基准结果中的任何一项，必须标注为"非标准Benchmark"并降低相关性评分""",
                     },
                     {"role": "user", "content": self._build_prompt(candidate)},
                 ],
@@ -174,14 +199,25 @@ MGX适配度评估标准(relevance_score):
 - 摘要: {(candidate.abstract or 'N/A')[:500]}
 {github_info}{task_info}{license_info}
 
+**首要判断: 是否为真正的Benchmark?**
+- 检查是否包含: 评测任务 + 测试数据集 + 评估指标 + 基准结果
+- 如果是工具/教程/资源汇总 → relevance_score必须≤2分
+
 评分维度:
 1. 活跃度(activity_score): GitHub stars 与最近更新情况
 2. 可复现性(reproducibility_score): 代码/数据/文档公开程度
 3. 许可合规(license_score): MIT/Apache/BSD得分更高,未知/专有扣分
 4. 任务新颖性(novelty_score): 是否提供全新 Benchmark 或方法
-5. MGX适配度(relevance_score): 是否贴合多智能体/代码/工具使用场景
+5. MGX适配度(relevance_score):
+   - **真Benchmark**: 按多智能体/代码/工具场景相关度打分(0-10分)
+   - **非Benchmark（工具/教程/资源汇总）**: 无论stars多高，必须≤2分
 
-**重要**: reasoning字段必须详细、具体、基于事实数据，**最少200字**，格式要求:
+**重要**: reasoning字段必须详细、具体、基于事实数据，**最少250字**，格式要求:
+
+【Benchmark类型判断】★ 新增必需部分 ★
+- 明确说明"是真正的Benchmark"或"不是Benchmark（工具/教程/资源汇总）"
+- 如果是真Benchmark: 列举评测任务、数据集、评估指标、基准结果
+- 如果不是: 说明缺少哪些关键要素（如"无标准测试集"、"仅为工具库"）
 
 【活跃度分析】
 - 必须引用具体stars数量（如"GitHub 1,500+ stars"）
@@ -199,28 +235,49 @@ MGX适配度评估标准(relevance_score):
 - 如果未知License，明确标注并扣分
 
 【任务新颖性分析】
-- 说明该Benchmark的核心创新点
+- 说明该项目的核心创新点或评测维度
 - 对比已有同类Benchmark的差异（如"相比HumanEval增加了X维度"）
 - 评估学术/工业价值
 
 【MGX适配度分析】
-- 明确说明与多智能体协作/代码生成/工具使用的关联
+- 如果是真Benchmark: 明确说明与多智能体协作/代码生成/工具使用的关联
+- 如果不是Benchmark: 明确标注"非Benchmark项目，relevance_score设为1-2分"
 - 列举具体评测维度（如"测试Agent规划能力"、"评估代码生成质量"）
-- 解释为何适合或不适合MGX场景
 
 **禁止使用模糊描述**:
 - ❌ "GitHub stars较高" → ✅ "GitHub 1,500 stars"
 - ❌ "近期有更新" → ✅ "最后更新于7天前，近30天有12次提交"
 - ❌ "代码开源" → ✅ "代码仓库完全开源，包含训练脚本、评估代码和完整文档"
+- ❌ "可能是工具" → ✅ "这是Agent框架工具，不是Benchmark，缺少标准测试集和评估指标"
 
-请输出JSON,示例:
+请输出JSON,示例1（真Benchmark）:
 {{
   "activity_score": 8.5,
   "reproducibility_score": 9.0,
   "license_score": 10.0,
-  "novelty_score": 7.0,
-  "relevance_score": 8.0,
-  "reasoning": "【活跃度】GitHub 326,329 stars，近30天有10+commits，社区活跃度极高；【可复现性】代码完全开源+详细文档+多语言支持，复现成本低；【许可合规】MIT License，符合商业使用；【新颖性】系统设计学习资源集合，非新Benchmark，复用已有知识；【MGX适配度】与多智能体直接相关性低，但对系统架构设计有参考价值"
+  "novelty_score": 7.5,
+  "relevance_score": 8.5,
+  "reasoning": "【Benchmark判断】✅ 真正的Benchmark - 评测多智能体代码生成能力，包含标准测试集（153道编程题）、明确指标（Pass@k）和基准结果（GPT-4得分67%）；【活跃度】GitHub 2,400 stars，近30天有15次提交，社区活跃；【可复现性】代码完全开源，包含评估脚本、数据集和详细文档；【许可合规】MIT License，适合商业使用；【新颖性】首个多Agent协作编程benchmark，填补该领域空白；【MGX适配度】直接评测多Agent代码生成，与MGX核心场景高度匹配"
+}}
+
+示例2（非Benchmark - 工具库）:
+{{
+  "activity_score": 9.0,
+  "reproducibility_score": 8.0,
+  "license_score": 10.0,
+  "novelty_score": 6.0,
+  "relevance_score": 2.0,
+  "reasoning": "【Benchmark判断】❌ 不是Benchmark - 这是Agent开发框架/工具库，缺少标准评测任务、测试数据集和评估指标；【活跃度】GitHub 15,000 stars，近30天有50+提交，维护积极；【可复现性】代码开源+详细文档+示例代码；【许可合规】MIT License；【新颖性】提供便捷的Agent开发工具；【MGX适配度】虽然与Agent相关，但本身是工具不是Benchmark，relevance_score设为2分"
+}}
+
+示例3（非Benchmark - 资源汇总）:
+{{
+  "activity_score": 7.0,
+  "reproducibility_score": 3.0,
+  "license_score": 8.0,
+  "novelty_score": 2.0,
+  "relevance_score": 1.0,
+  "reasoning": "【Benchmark判断】❌ 不是Benchmark - awesome-list资源汇总，仅收集链接，无评测任务/数据集/指标/基准结果；【活跃度】GitHub 8,000 stars，近30天有5次提交；【可复现性】无代码实现，仅为链接集合；【许可合规】CC0-1.0 License；【新颖性】资源整理无创新性；【MGX适配度】虽整理AI资源，但本质是列表不是Benchmark，relevance_score设为1分"
 }}
 """
 

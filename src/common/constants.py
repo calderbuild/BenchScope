@@ -109,11 +109,11 @@ PRIORITY_MEDIUM_THRESHOLD: Final[int] = 30
 # 评分阈值
 MIN_TOTAL_SCORE: Final[float] = 6.0  # 低于6分不入库
 SCORE_WEIGHTS: Final[dict[str, float]] = {
-    "activity": 0.20,
-    "reproducibility": 0.30,
-    "license": 0.20,
-    "novelty": 0.10,
-    "relevance": 0.20,
+    "activity": 0.15,        # 降低：GitHub stars容易虚高
+    "reproducibility": 0.30,  # 保持：可复现性是核心
+    "license": 0.15,         # 降低：不是核心指标
+    "novelty": 0.15,         # 提高：Benchmark需要创新
+    "relevance": 0.25,       # 提高：MGX适配度是关键
 }
 
 # ---- 存储与通知 ----
@@ -124,6 +124,7 @@ FEISHU_BENCH_TABLE_URL: Final[str] = (
     "https://jcnqgpxcjdms.feishu.cn/base/WgI0bpHRVacs43skW24cR6JznWg?table=tblv2kzbzt4S2NSk&view=vewiJRxzFs"
 )
 FEISHU_MEDIUM_TOPK: Final[int] = 5
+FEISHU_REASONING_PREVIEW_LENGTH: Final[int] = 1500  # 评分依据字段最大长度
 FEISHU_SOURCE_NAME_MAP: Final[dict[str, str]] = {
     "arxiv": "arXiv",
     "github": "GitHub",

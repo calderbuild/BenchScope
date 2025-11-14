@@ -87,4 +87,41 @@ def _is_quality_github_repo(candidate: RawCandidate) -> bool:
         logger.debug("GitHub README过短: %s (%s字符)", candidate.title, readme_length)
         return False
 
+    # Phase 6 优化: 排除awesome-list和工具类项目
+    title_lower = candidate.title.lower()
+    readme_lower = (candidate.abstract or "").lower()
+
+    # 排除awesome-list
+    if "awesome-" in title_lower or "awesome " in title_lower:
+        logger.debug("排除awesome-list: %s", candidate.title)
+        return False
+
+    # 排除资源汇总类项目
+    curated_patterns = [
+        "curated list",
+        "collection of",
+        "list of tools",
+        "awesome list",
+        "资源汇总",
+        "资源列表",
+    ]
+    if any(pattern in readme_lower for pattern in curated_patterns):
+        logger.debug("排除资源汇总类项目: %s", candidate.title)
+        return False
+
+    # Benchmark特征检测（至少满足一项）
+    benchmark_features = [
+        "benchmark",
+        "evaluation",
+        "test set",
+        "dataset",
+        "leaderboard",
+        "baseline",
+    ]
+    has_benchmark_feature = any(feature in readme_lower for feature in benchmark_features)
+
+    if not has_benchmark_feature:
+        logger.debug("缺少Benchmark特征: %s", candidate.title)
+        return False
+
     return True
