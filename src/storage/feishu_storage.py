@@ -28,7 +28,7 @@ class FeishuStorage:
         "source": "来源",
         "url": "URL",
         "abstract": "摘要",
-        # 评分维度
+        # 评分维度（v1兼容）
         "activity_score": "活跃度",
         "reproducibility_score": "可复现性",
         "license_score": "许可合规性",  # 修正: 飞书实际字段有"性"字
@@ -38,6 +38,23 @@ class FeishuStorage:
         "priority": "优先级",
         "reasoning": "评分依据",
         "status": "状态",
+        # 能力域（Phase 7.2）
+        "planning_score": "规划能力",
+        "tool_use_score": "工具使用能力",
+        "memory_score": "记忆能力",
+        "collaboration_score": "协作能力",
+        "reasoning_score": "推理能力",
+        # 风险域（Phase 7.2）
+        "security_score": "安全性",
+        "robustness_score": "鲁棒性",
+        "hallucination_risk": "幻觉风险",
+        "compliance_score": "合规性",
+        # 汇总字段
+        "capability_total": "能力域总分",
+        "risk_total": "风险域总分",
+        "operational_total": "运营域总分",
+        "risk_level": "风险等级",
+        "evaluation_version": "评估版本",
         # Phase 6 新增字段（必需，支撑"一键添加"核心目标）
         "paper_url": "论文URL",  # 修正: 飞书实际字段无空格
         "github_stars": "GitHub Stars",
@@ -192,9 +209,24 @@ class FeishuStorage:
             self.FIELD_MAPPING["relevance_score"]: candidate.relevance_score,
             self.FIELD_MAPPING["total_score"]: round(candidate.total_score, 2),
             self.FIELD_MAPPING["priority"]: candidate.priority,
-            self.FIELD_MAPPING["reasoning"]: candidate.reasoning[:500] if candidate.reasoning else "",
+            self.FIELD_MAPPING["reasoning"]: (candidate.reasoning or "")[
+                : constants.FEISHU_REASONING_PREVIEW_LENGTH
+            ],
             self.FIELD_MAPPING["status"]: "pending",
         }
+
+        # 三域评分字段写入，保证缺省场景不会抛出异常
+        if candidate.capability_scores:
+            self._inject_capability_scores(fields, candidate)
+        if candidate.risk_scores:
+            self._inject_risk_scores(fields, candidate)
+        if candidate.operational_scores:
+            self._inject_operational_totals(fields, candidate)
+
+        if candidate.risk_level:
+            fields[self.FIELD_MAPPING["risk_level"]] = candidate.risk_level
+
+        fields[self.FIELD_MAPPING["evaluation_version"]] = candidate.evaluation_version
 
         # 新增字段 (Phase 6) - 谨慎处理空值
         if hasattr(candidate, "paper_url") and candidate.paper_url:
@@ -231,6 +263,38 @@ class FeishuStorage:
             fields[self.FIELD_MAPPING["license_type"]] = candidate.license_type
 
         return {"fields": fields}
+
+    def _inject_capability_scores(self, fields: dict, candidate: ScoredCandidate) -> None:
+        """写入能力域得分，保留两位小数"""
+
+        scores = candidate.capability_scores
+        if not scores:
+            return
+
+        fields[self.FIELD_MAPPING["planning_score"]] = round(scores.planning_score, 2)
+        fields[self.FIELD_MAPPING["tool_use_score"]] = round(scores.tool_use_score, 2)
+        fields[self.FIELD_MAPPING["memory_score"]] = round(scores.memory_score, 2)
+        fields[self.FIELD_MAPPING["collaboration_score"]] = round(scores.collaboration_score, 2)
+        fields[self.FIELD_MAPPING["reasoning_score"]] = round(scores.reasoning_score, 2)
+        fields[self.FIELD_MAPPING["capability_total"]] = round(candidate.capability_total, 2)
+
+    def _inject_risk_scores(self, fields: dict, candidate: ScoredCandidate) -> None:
+        """写入风险域得分，方便在表格快速筛选风险"""
+
+        scores = candidate.risk_scores
+        if not scores:
+            return
+
+        fields[self.FIELD_MAPPING["security_score"]] = round(scores.security_score, 2)
+        fields[self.FIELD_MAPPING["robustness_score"]] = round(scores.robustness_score, 2)
+        fields[self.FIELD_MAPPING["hallucination_risk"]] = round(scores.hallucination_risk, 2)
+        fields[self.FIELD_MAPPING["compliance_score"]] = round(scores.compliance_score, 2)
+        fields[self.FIELD_MAPPING["risk_total"]] = round(candidate.risk_total, 2)
+
+    def _inject_operational_totals(self, fields: dict, candidate: ScoredCandidate) -> None:
+        """写入运营域总分，沿用旧5维细项"""
+
+        fields[self.FIELD_MAPPING["operational_total"]] = round(candidate.operational_total, 2)
 
     async def get_existing_urls(self) -> set[str]:
         """查询飞书Bitable已存在的所有URL（用于去重）"""
@@ -283,4 +347,3 @@ class FeishuStorage:
 
         logger.info("飞书已存在URL数量: %d", len(existing_urls))
         return existing_urls
-
