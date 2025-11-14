@@ -18,17 +18,10 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
-        with:
-          enable-cache: true
+          cache: 'pip'  # 使用pip缓存，基于requirements.txt
 
       - name: Install dependencies
-        run: |
-          uv venv
-          source .venv/bin/activate
-          uv pip install -r requirements.txt
+        run: pip install -r requirements.txt
 
       - name: Track GitHub Releases
         env:
@@ -39,9 +32,7 @@ jobs:
           FEISHU_BITABLE_TABLE_ID: ${{ secrets.FEISHU_BITABLE_TABLE_ID }}
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
-        run: |
-          source .venv/bin/activate
-          PYTHONPATH=. python scripts/track_github_releases.py
+        run: PYTHONPATH=. python scripts/track_github_releases.py
 
       - name: Track arXiv Versions
         env:
@@ -51,6 +42,4 @@ jobs:
           FEISHU_BITABLE_APP_TOKEN: ${{ secrets.FEISHU_BITABLE_APP_TOKEN }}
           FEISHU_BITABLE_TABLE_ID: ${{ secrets.FEISHU_BITABLE_TABLE_ID }}
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
-        run: |
-          source .venv/bin/activate
-          PYTHONPATH=. python scripts/track_arxiv_versions.py
+        run: PYTHONPATH=. python scripts/track_arxiv_versions.py
