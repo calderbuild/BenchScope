@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -59,7 +60,15 @@ class PDFEnhancer:
         # 使用本地缓存目录，避免重复下载同一篇论文
         self.cache_dir = Path(cache_dir or "/tmp/arxiv_pdf_cache")
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        logger.info("PDFEnhancer 初始化完成，缓存目录: %s", self.cache_dir)
+
+        # 从环境变量读取 GROBID URL，默认使用本地服务
+        self.grobid_url = os.getenv("GROBID_URL", "http://localhost:8070")
+
+        logger.info(
+            "PDFEnhancer 初始化完成，缓存目录: %s, GROBID服务: %s",
+            self.cache_dir,
+            self.grobid_url,
+        )
 
     async def enhance_candidate(self, candidate: RawCandidate) -> RawCandidate:
         """增强单个候选项，仅处理 arXiv 来源。
@@ -152,7 +161,9 @@ class PDFEnhancer:
         """
         try:
             # 解析结果为通用 dict，需要在使用前做类型防御
-            article_dict = await asyncio.to_thread(parse_pdf_to_dict, str(pdf_path))
+            article_dict = await asyncio.to_thread(
+                parse_pdf_to_dict, str(pdf_path), grobid_url=self.grobid_url
+            )
             if not isinstance(article_dict, dict):
                 logger.warning("PDF解析结果非字典类型: %s", type(article_dict))
                 return None
