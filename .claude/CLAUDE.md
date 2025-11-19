@@ -298,10 +298,6 @@ src/
 ├── notifier/               # 通知引擎
 │   └── feishu_notifier.py      # 飞书Webhook推送 + 交互式卡片
 │
-├── tracker/                # 版本跟踪
-│   ├── github_tracker.py       # GitHub Release监控
-│   └── arxiv_tracker.py        # arXiv版本更新监控
-│
 ├── api/                    # Web服务 (Phase 5, 可选)
 │   └── feishu_callback.py      # Flask回调处理
 │
@@ -317,8 +313,6 @@ config/
 
 scripts/
 ├── analyze_logs.py         # 日志分析工具
-├── track_github_releases.py    # GitHub Release跟踪脚本
-├── track_arxiv_versions.py     # arXiv版本跟踪脚本
 ├── create_feishu_fields.py     # 飞书表格字段初始化
 ├── deduplicate_feishu_table.py # 飞书表格去重
 ├── clear_feishu_table.py       # 飞书表格清空
@@ -451,12 +445,6 @@ asyncio.run(test())
 ```bash
 # 分析日志 (采集/预筛/评分统计)
 .venv/bin/python scripts/analyze_logs.py
-
-# 跟踪GitHub Release更新
-.venv/bin/python scripts/track_github_releases.py
-
-# 跟踪arXiv版本更新
-.venv/bin/python scripts/track_arxiv_versions.py
 
 # 创建飞书表格字段 (首次初始化)
 .venv/bin/python scripts/create_feishu_fields.py
@@ -741,10 +729,11 @@ perf(scorer): add redis caching for llm scoring
 - [x] 实现时间窗口过滤 (GitHub 30天, HuggingFace 14天, arXiv 7天)
 - [x] 创建日志分析工具 (`scripts/analyze_logs.py`)
 
-**Phase 4 - 版本跟踪**:
-- [x] GitHub Release监控 (`src/tracker/github_tracker.py`)
-- [x] arXiv版本更新提醒 (`src/tracker/arxiv_tracker.py`)
-- [x] GitHub Actions定时任务 (`.github/workflows/track_releases.yml`)
+**Phase 4 - 版本跟踪（已在2025-11-19下线）**:
+- ❌ GitHub Release监控 (`src/tracker/github_tracker.py`) → 已移除
+- ❌ arXiv版本更新提醒 (`src/tracker/arxiv_tracker.py`) → 已移除
+- ❌ GitHub Actions定时任务 (`.github/workflows/track_releases.yml`) → 已删除
+- ✅ 决策：版本监控偏离“发现新Benchmark”的核心目标
 
 **Phase 5 - 增强功能**:
 - [x] 飞书卡片消息 (交互式卡片 + 按钮)
@@ -813,13 +802,7 @@ perf(scorer): add redis caching for llm scoring
 4. 运行 `src/main.py`
 5. 上传日志和SQLite备份到Artifacts (保留7天)
 
-### Version Tracking (`.github/workflows/track_releases.yml`)
-
-**触发**: 每天 UTC 10:00 (北京时间 18:00)
-**步骤**:
-1. 运行 `scripts/track_github_releases.py` (监控GitHub Release)
-2. 运行 `scripts/track_arxiv_versions.py` (监控arXiv版本)
-3. 自动推送飞书通知
+> ℹ️ 版本监控Workflow已在2025-11-19下线，所有CI/CD资源专注每日采集流水线。
 
 ## Common Pitfalls
 

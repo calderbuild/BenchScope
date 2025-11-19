@@ -151,24 +151,3 @@ class ScoredCandidate:
             return "medium"
         return "low"
 
-
-@dataclass(slots=True)
-class GitHubRelease:
-    """GitHub Release版本信息"""
-
-    repo_url: str
-    tag_name: str
-    published_at: datetime
-    release_notes: str
-    html_url: str
-
-
-@dataclass(slots=True)
-class ArxivVersion:
-    """arXiv 论文版本信息"""
-
-    arxiv_id: str
-    version: str
-    updated_at: datetime
-    summary: str
-    url: str

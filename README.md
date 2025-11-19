@@ -49,7 +49,7 @@
 ### 飞书通知
 - **分层推送策略**: High优先级→Medium次之→Low补充
 - **交互式卡片**: 支持按钮操作（Phase 5）
-- **版本跟踪**: GitHub Release + arXiv版本更新自动通知
+- **统一播报**: 单次推送最新高价值Benchmark（版本监控已下线）
 
 ## 性能指标
 
@@ -126,11 +126,6 @@ python -m src.main
 # SQLite数据同步到飞书
 .venv/bin/python scripts/sync_sqlite_to_feishu.py
 
-# GitHub Release版本跟踪
-.venv/bin/python scripts/track_github_releases.py
-
-# arXiv版本更新跟踪
-.venv/bin/python scripts/track_arxiv_versions.py
 ```
 
 ## 项目结构
@@ -153,9 +148,6 @@ src/
 │   └── storage_manager.py      # 主备切换管理
 ├── notifier/               # 通知引擎
 │   └── feishu_notifier.py      # 飞书Webhook推送
-├── tracker/                # 版本跟踪
-│   ├── github_tracker.py       # GitHub Release监控
-│   └── arxiv_tracker.py        # arXiv版本更新监控
 ├── common/
 │   └── constants.py            # 配置常量
 ├── models.py               # 数据模型
@@ -174,8 +166,7 @@ scripts/
 ├── deduplicate_feishu_table.py # 去重
 ├── clear_feishu_table.py   # 清空表格
 ├── create_feishu_fields.py # 初始化字段
-├── track_github_releases.py # GitHub Release跟踪
-└── track_arxiv_versions.py  # arXiv版本跟踪
+└── test_layered_notification.py # 飞书通知测试
 ```
 
 ## GitHub Actions自动化
@@ -184,11 +175,7 @@ scripts/
 - **触发**: 每天UTC 02:00 (北京时间10:00)
 - **流程**: 采集 → 预筛 → 评分 → 存储 → 通知
 - **制品**: 日志文件 + SQLite备份（保留7天）
-
-### 版本跟踪 (`.github/workflows/track_releases.yml`)
-- **触发**: 每天UTC 10:00 (北京时间18:00)
-- **监控**: GitHub Release + arXiv版本更新
-- **通知**: 自动推送飞书通知
+- **说明**: 版本监控工作流已下线，所有CI资源集中在核心采集与评分流程
 
 ## 代码质量
 
@@ -231,7 +218,7 @@ ruff check --fix .
 
 ## 项目状态
 
-- **Phase 1-5**: ✅ 已完成（MVP + 核心优化 + 版本跟踪 + 增强功能）
+- **Phase 1-5**: ✅ 已完成（MVP + 核心优化 + 增强功能；版本跟踪已于2025-11-19下线）
 - **Phase 6**: ✅ 已完成（信息源扩展 + 数据完善 + 智能预筛选）
 - **当前版本**: v1.6.0
 - **代码质量**: ⭐⭐⭐⭐⭐ (10/10)

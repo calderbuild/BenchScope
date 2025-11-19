@@ -4,9 +4,9 @@
 
 ## Project Structure & Module Organization
 
-- 业务代码在 `src/`：如 `collectors/`（数据采集）、`prefilter/`（规则预筛）、`scorer/`（LLM 评分）、`storage/`（飞书与 SQLite 存储）、`notifier/`（飞书通知）、`tracker/`（版本跟踪）、`api/`（API/Callback 服务）。
+- 业务代码在 `src/`：如 `collectors/`（数据采集）、`prefilter/`（规则预筛）、`scorer/`（LLM 评分）、`storage/`（飞书与 SQLite 存储）、`notifier/`（飞书通知）、`api/`（API/Callback 服务）。
 - 配置在 `config/`（如 `config/sources.yaml`），公共常量在 `src/common/constants.py`。
-- 实用脚本在 `scripts/`（日志分析、飞书表同步、版本跟踪等），文档在 `docs/`，运行日志在 `logs/`。
+- 实用脚本在 `scripts/`（日志分析、飞书表同步等），文档在 `docs/`，运行日志在 `logs/`。
 
 ## Build, Test, and Development Commands
 
