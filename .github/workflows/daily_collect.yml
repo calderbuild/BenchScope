@@ -48,7 +48,7 @@ jobs:
           REDIS_URL: redis://localhost:6379/0
           LOG_LEVEL: INFO
         run: |
-          python src/main.py
+          python -m src.main
 
       - name: Upload logs
         if: always()
