@@ -13,6 +13,7 @@ from huggingface_hub import HfApi
 from src.common import constants
 from src.config import Settings, get_settings
 from src.models import RawCandidate
+from src.extractors import ImageExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +47,13 @@ class HuggingFaceCollector:
             if not self._is_benchmark_dataset(payload):
                 continue
 
+            dataset_id = payload.get("id") or payload.get("_id")
             candidate = self._to_candidate(payload)
             if candidate:
+                if dataset_id:
+                    candidate.hero_image_url = await ImageExtractor.extract_huggingface_image(
+                        dataset_id
+                    )
                 candidates.append(candidate)
 
         logger.info("HuggingFace采集完成,候选数%s", len(candidates))

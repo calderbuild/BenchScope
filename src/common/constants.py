@@ -406,6 +406,17 @@ FEISHU_SOURCE_NAME_MAP: Final[dict[str, str]] = {
     "twitter": "Twitter",
 }
 
+# ---- 图片处理配置 ----
+IMAGE_MIN_SIZE_BYTES: Final[int] = 50 * 1024  # 50KB下限，过滤无效小图
+IMAGE_MAX_SIZE_BYTES: Final[int] = 5 * 1024 * 1024  # 5MB上限，避免大文件拖慢
+IMAGE_MIN_WIDTH: Final[int] = 300  # 最小宽度限制，过滤徽标/小图标
+IMAGE_MIN_HEIGHT: Final[int] = 200
+IMAGE_DOWNLOAD_TIMEOUT_SECONDS: Final[int] = 5
+IMAGE_UPLOAD_TIMEOUT_SECONDS: Final[int] = 10
+IMAGE_CACHE_TTL_SECONDS: Final[int] = 30 * 24 * 3600  # 30天缓存
+IMAGE_CACHE_PREFIX: Final[str] = "feishu:img:"
+IMAGE_SUPPORTED_FORMATS: Final[list[str]] = ["JPEG", "PNG", "GIF", "BMP"]
+
 # 字符串截断长度
 TITLE_TRUNCATE_SHORT: Final[int] = 50  # 日志显示
 TITLE_TRUNCATE_MEDIUM: Final[int] = 60  # 摘要卡片

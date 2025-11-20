@@ -294,6 +294,38 @@ class FeishuNotifier:
                 },
             )
 
+        elements = []
+        if candidate.hero_image_key:
+            elements.append(
+                {
+                    "tag": "img",
+                    "img_key": candidate.hero_image_key,
+                    "alt": {
+                        "tag": "plain_text",
+                        "content": f"{candidate.title} 预览图",
+                    },
+                    "preview": True,
+                    "scale_type": "crop_center",
+                    "size": "large",
+                }
+            )
+            elements.append({"tag": "hr"})
+
+        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": content}})
+        elements.append({"tag": "hr"})
+        elements.append({"tag": "action", "actions": actions})
+        elements.append(
+            {
+                "tag": "note",
+                "elements": [
+                    {
+                        "tag": "plain_text",
+                        "content": f"BenchScope 情报员 | {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                    }
+                ],
+            }
+        )
+
         return {
             "msg_type": "interactive",
             "card": {
@@ -301,20 +333,7 @@ class FeishuNotifier:
                     "title": {"tag": "plain_text", "content": title},
                     "template": "red" if candidate.priority == "high" else "blue",
                 },
-                "elements": [
-                    {"tag": "div", "text": {"tag": "lark_md", "content": content}},
-                    {"tag": "hr"},
-                    {"tag": "action", "actions": actions},
-                    {
-                        "tag": "note",
-                        "elements": [
-                            {
-                                "tag": "plain_text",
-                                "content": f"BenchScope 情报员 | {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-                            }
-                        ],
-                    },
-                ],
+                "elements": elements,
             },
         }
 

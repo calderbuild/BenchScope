@@ -52,6 +52,9 @@ class FeishuStorage:
         "github_stars": "GitHub Stars",
         "github_url": "GitHub URL",
         "license_type": "许可证",  # 修复: "License类型" → "许可证"
+        # Phase 9 图片字段
+        "hero_image_url": "图片URL",
+        "hero_image_key": "图片Key",
     }
 
     def __init__(self, settings: Optional[Settings] = None) -> None:
@@ -395,6 +398,14 @@ class FeishuStorage:
 
         if hasattr(candidate, "dataset_url") and candidate.dataset_url:
             fields[self.FIELD_MAPPING["dataset_url"]] = {"link": candidate.dataset_url}
+
+        if getattr(candidate, "hero_image_url", None):
+            fields[self.FIELD_MAPPING["hero_image_url"]] = {
+                "link": candidate.hero_image_url
+            }
+
+        if getattr(candidate, "hero_image_key", None):
+            fields[self.FIELD_MAPPING["hero_image_key"]] = candidate.hero_image_key
 
         return {"fields": fields}
 

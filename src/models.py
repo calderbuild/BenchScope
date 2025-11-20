@@ -34,6 +34,8 @@ class RawCandidate:
     github_stars: Optional[int] = None
     github_url: Optional[str] = None
     dataset_url: Optional[str] = None
+    hero_image_url: Optional[str] = None  # Phase 9: 图片原始URL
+    hero_image_key: Optional[str] = None  # Phase 9: 飞书image_key
     # Phase 8新增：采集阶段粗提取的元数据
     raw_metrics: Optional[List[str]] = None  # 原始指标文本
     raw_baselines: Optional[List[str]] = None  # 原始baseline文本
@@ -65,6 +67,8 @@ class ScoredCandidate:
     github_stars: Optional[int] = None
     github_url: Optional[str] = None
     dataset_url: Optional[str] = None
+    hero_image_url: Optional[str] = None
+    hero_image_key: Optional[str] = None
     raw_metadata: Dict[str, str] = field(default_factory=dict)
     raw_metrics: Optional[List[str]] = None
     raw_baselines: Optional[List[str]] = None
@@ -150,4 +154,3 @@ class ScoredCandidate:
         if total >= 6.0:
             return "medium"
         return "low"
-

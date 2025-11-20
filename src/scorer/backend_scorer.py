@@ -194,6 +194,8 @@ class BackendBenchmarkScorer:
             github_stars=candidate.github_stars,
             github_url=candidate.github_url,
             dataset_url=candidate.dataset_url,
+            hero_image_url=candidate.hero_image_url,
+            hero_image_key=candidate.hero_image_key,
             raw_metadata=candidate.raw_metadata,
             raw_metrics=candidate.raw_metrics,
             raw_baselines=candidate.raw_baselines,

@@ -11,6 +11,7 @@ import httpx
 
 from src.config import Settings, get_settings
 from src.models import RawCandidate
+from src.extractors import ImageExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,7 @@ class HelmCollector:
         publish_date = (
             self._parse_release_date(summary.get("date")) if summary else None
         )
-        candidates = self._parse_groups(groups or [], release, publish_date)
+        candidates = await self._parse_groups(groups or [], release, publish_date)
         logger.info("HELM采集完成,候选总数%s", len(candidates))
         return candidates
 
@@ -90,7 +91,7 @@ class HelmCollector:
             logger.error("获取HELM groups失败(%s): %s", release, exc)
             return None
 
-    def _parse_groups(
+    async def _parse_groups(
         self,
         sections: List[Dict[str, Any]],
         release: str,
@@ -153,6 +154,7 @@ class HelmCollector:
                 abstract = " | ".join(abstract_parts) if abstract_parts else None
 
                 candidate_url = self._build_group_url(slug)
+                hero_image_url = await ImageExtractor.extract_og_image(candidate_url)
                 metadata = {
                     "release": release,
                     "section": title,
@@ -175,6 +177,7 @@ class HelmCollector:
                         raw_metadata={
                             k: v for k, v in metadata.items() if v is not None
                         },
+                        hero_image_url=hero_image_url,
                     )
                 )
 

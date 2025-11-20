@@ -22,7 +22,7 @@ from src.models import RawCandidate
 from src.notifier import FeishuNotifier
 from src.prefilter import prefilter_batch
 from src.scorer import LLMScorer
-from src.storage import StorageManager
+from src.storage import FeishuImageUploader, StorageManager
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,7 @@ async def main() -> None:
     logger.info("=" * 60)
 
     # Step 1: 数据采集
-    logger.info("[1/6] 数据采集...")
+    logger.info("[1/7] 数据采集...")
     collectors = [
         ArxivCollector(settings=settings),
         # SemanticScholarCollector(),  # 暂时禁用：无API密钥
@@ -63,7 +63,7 @@ async def main() -> None:
         return
 
     # Step 1.5: 去重（本次采集内部去重 + 过滤已推送的URL）
-    logger.info("[1.5/6] URL去重...")
+    logger.info("[1.5/7] URL去重...")
 
     # 1. 本次采集内部去重（保留第一次出现）
     seen_urls_this_batch: set[str] = set()
@@ -92,7 +92,7 @@ async def main() -> None:
         return
 
     # Step 2: 规则预筛选
-    logger.info("[2/6] 规则预筛选...")
+    logger.info("[2/7] 规则预筛选...")
     filtered = prefilter_batch(deduplicated)
     filter_rate = 100 * (1 - len(filtered) / len(deduplicated)) if deduplicated else 0
     logger.info("预筛选完成: 保留%d条 (过滤率%.1f%%)\n", len(filtered), filter_rate)
@@ -101,7 +101,7 @@ async def main() -> None:
         return
 
     # Step 3: PDF 内容增强（仅对通过预筛选的候选进行深度解析）
-    logger.info("[3/6] PDF内容增强...")
+    logger.info("[3/7] PDF内容增强...")
     pdf_enhancer = PDFEnhancer()
     enhanced_candidates = await pdf_enhancer.enhance_batch(filtered)
     arxiv_count = sum(1 for c in filtered if c.source == "arxiv")
@@ -112,20 +112,36 @@ async def main() -> None:
     )
 
     # Step 4: LLM评分（使用增强后的候选）
-    logger.info("[4/6] LLM评分...")
+    logger.info("[4/7] LLM评分...")
     async with LLMScorer() as scorer:
         scored = await scorer.score_batch(enhanced_candidates)
     logger.info("评分完成: %d条\n", len(scored))
 
-    # Step 5: 存储入库
-    logger.info("[5/6] 存储入库...")
+    # Step 5: 图片上传到飞书
+    logger.info("[5/7] 图片上传到飞书...")
+    uploader = FeishuImageUploader(settings)
+    upload_targets = [c for c in scored if c.hero_image_url]
+    success_count = 0
+    for candidate in upload_targets:
+        try:
+            candidate.hero_image_key = await uploader.upload_image(
+                candidate.hero_image_url
+            )
+            if candidate.hero_image_key:
+                success_count += 1
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("图片上传失败: %s | %s", candidate.title[:50], exc)
+    logger.info("图片上传完成: %d/%d", success_count, len(upload_targets))
+
+    # Step 6: 存储入库
+    logger.info("[6/7] 存储入库...")
     await storage.save(scored)
     await storage.sync_from_sqlite()
     await storage.cleanup()
     logger.info("存储完成\n")
 
-    # Step 6: 飞书通知
-    logger.info("[6/6] 飞书通知...")
+    # Step 7: 飞书通知
+    logger.info("[7/7] 飞书通知...")
     notifier = FeishuNotifier(settings=settings)
     await notifier.notify(scored)
     logger.info("通知完成\n")

@@ -13,6 +13,7 @@ from src.common import constants
 from src.common.url_extractor import URLExtractor
 from src.config import Settings, get_settings
 from src.models import RawCandidate
+from src.extractors import ImageExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ class ArxivCollector:
             try:
                 async with asyncio.timeout(self.timeout):
                     results = await asyncio.to_thread(self._fetch_results)
-                return self._to_candidates(results)
+                return await self._to_candidates(results)
             except asyncio.TimeoutError:
                 logger.warning(
                     "arXiv查询超时,准备重试(%s/%s)", attempt, self.max_retries
@@ -69,7 +70,7 @@ class ArxivCollector:
         )
         return list(search.results())
 
-    def _to_candidates(self, results: List[arxiv.Result]) -> List[RawCandidate]:
+    async def _to_candidates(self, results: List[arxiv.Result]) -> List[RawCandidate]:
         """将arXiv返回转成内部数据结构"""
 
         from datetime import timezone
@@ -93,6 +94,10 @@ class ArxivCollector:
             text_to_search = f"{paper.summary or ''}\n{paper.comment or ''}"
             dataset_url = URLExtractor.extract_dataset_url(text_to_search)
 
+            hero_image_url = await ImageExtractor.extract_arxiv_image(
+                paper.pdf_url or paper.entry_id
+            )
+
             candidates.append(
                 RawCandidate(
                     title=paper.title.strip(),
@@ -110,6 +115,7 @@ class ArxivCollector:
                         "categories": ",".join(paper.categories or []),
                         "comment": paper.comment or "",
                     },
+                    hero_image_url=hero_image_url,
                 )
             )
 
