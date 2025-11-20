@@ -64,6 +64,46 @@ class FeishuStorage:
         self._field_names: Optional[set[str]] = None
         self._missing_fields_logged: bool = False
 
+    async def _request_with_retry(
+        self,
+        client: httpx.AsyncClient,
+        method: str,
+        url: str,
+        **kwargs: Any,
+    ) -> httpx.Response:
+        """对飞书API请求增加重试，防止偶发超时导致流程中断"""
+
+        timeout = kwargs.pop(
+            "timeout",
+            constants.FEISHU_HTTP_TIMEOUT_SECONDS,
+        )
+        delay = constants.FEISHU_HTTP_RETRY_DELAY_SECONDS
+        last_error: Optional[Exception] = None
+
+        for attempt in range(1, constants.FEISHU_HTTP_MAX_RETRIES + 1):
+            try:
+                return await client.request(
+                    method,
+                    url,
+                    timeout=timeout,
+                    **kwargs,
+                )
+            except (httpx.RequestError, httpx.TimeoutException) as exc:
+                last_error = exc
+                logger.warning(
+                    "飞书请求失败(%s %s)第%d次: %s",
+                    method,
+                    url,
+                    attempt,
+                    exc,
+                )
+                if attempt >= constants.FEISHU_HTTP_MAX_RETRIES:
+                    break
+                await asyncio.sleep(delay)
+                delay *= 1.8
+
+        raise FeishuAPIError("飞书请求重试仍失败") from last_error
+
     async def save(self, candidates: List[ScoredCandidate]) -> None:
         """批量写入飞书多维表格"""
 
@@ -104,8 +144,12 @@ class FeishuStorage:
                 logger.warning("全部字段均缺失于飞书表，跳过本批次写入")
                 return
 
-            resp = await client.post(
-                url, headers=self._auth_header(), json={"records": filtered_records}
+            resp = await self._request_with_retry(
+                client,
+                "POST",
+                url,
+                headers=self._auth_header(),
+                json={"records": filtered_records},
             )
             resp.raise_for_status()
 
@@ -155,8 +199,13 @@ class FeishuStorage:
             "app_secret": self.settings.feishu.app_secret,
         }
 
-        async with httpx.AsyncClient(timeout=5) as client:
-            resp = await client.post(url, json=payload)
+        async with httpx.AsyncClient() as client:
+            resp = await self._request_with_retry(
+                client,
+                "POST",
+                url,
+                json=payload,
+            )
             resp.raise_for_status()
             data = resp.json()
             self.access_token = data.get("tenant_access_token")
@@ -202,7 +251,13 @@ class FeishuStorage:
         page_count = 0
         while page_count < max_pages:
             page_count += 1
-            resp = await client.get(url, headers=headers, params=params)
+            resp = await self._request_with_retry(
+                client,
+                "GET",
+                url,
+                headers=headers,
+                params=params,
+            )
             resp.raise_for_status()
             data = resp.json()
             data_obj = data.get("data") or {}
@@ -359,7 +414,13 @@ class FeishuStorage:
                 if page_token:
                     payload["page_token"] = page_token
 
-                resp = await client.post(url, headers=self._auth_header(), json=payload)
+                resp = await self._request_with_retry(
+                    client,
+                    "POST",
+                    url,
+                    headers=self._auth_header(),
+                    json=payload,
+                )
                 resp.raise_for_status()
                 data = resp.json()
 

@@ -296,11 +296,27 @@ PREFILTER_REQUIRED_KEYWORDS: Final[list[str]] = [
     "browser",
     "gui",
     "ui",
+    "automation",
     # P1 - Agent
     "agent",
+    "multi-agent",
     "tool",
     "api",
     "workflow",
+    # Phase 2 - 性能/后端扩展
+    "performance",
+    "benchmark",
+    "framework",
+    "database",
+    "latency",
+    "throughput",
+    "optimization",
+    "http",
+    "server",
+    "service",
+    "endpoint",
+    "query",
+    "storage",
     # P2 - 推理
     "reasoning",
     "math",
@@ -371,6 +387,9 @@ SCORE_WEIGHTS: Final[dict[str, float]] = {
 FEISHU_BATCH_SIZE: Final[int] = 20
 FEISHU_RATE_LIMIT_SECONDS: Final[float] = 0.6
 FEISHU_RATE_LIMIT_DELAY: Final[float] = FEISHU_RATE_LIMIT_SECONDS
+FEISHU_HTTP_TIMEOUT_SECONDS: Final[int] = 15
+FEISHU_HTTP_MAX_RETRIES: Final[int] = 3
+FEISHU_HTTP_RETRY_DELAY_SECONDS: Final[float] = 1.5
 FEISHU_BENCH_TABLE_URL: Final[str] = (
     "https://deepwisdom.feishu.cn/base/SbIibGBIWayQncslz5kcYMnrnGf?table=tblG5cMwubU6AJcV&view=vewUfT4GO6"
 )

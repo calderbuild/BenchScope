@@ -12,8 +12,11 @@ from src.models import RawCandidate
 logger = logging.getLogger(__name__)
 
 
+TRUSTED_SOURCES: set[str] = {"techempower", "dbengines", "helm"}
+
+
 def prefilter(candidate: RawCandidate) -> bool:
-    """Phase 3 基线预筛选规则"""
+    """Phase 3 基线预筛选规则（Phase 2优化版）"""
 
     if (
         not candidate.title
@@ -35,7 +38,15 @@ def prefilter(candidate: RawCandidate) -> bool:
         logger.debug("过滤: URL无效 - %s", candidate.url)
         return False
 
-    valid_sources = {"arxiv", "github", "huggingface", "helm", "semantic_scholar"}
+    valid_sources = {
+        "arxiv",
+        "github",
+        "huggingface",
+        "helm",
+        "semantic_scholar",
+        "techempower",
+        "dbengines",
+    }
     if candidate.source not in valid_sources:
         logger.debug("过滤: 来源不在白名单 - %s", candidate.source)
         return False
@@ -46,7 +57,12 @@ def prefilter(candidate: RawCandidate) -> bool:
     if candidate.source == "github" and not _is_quality_github_repo(candidate):
         return False
 
-    logger.debug("通过: %s", candidate.title[: constants.TITLE_TRUNCATE_SHORT])
+    logger.debug(
+        "✅ 通过预筛选: %s (source=%s, stars=%s)",
+        candidate.title[: constants.TITLE_TRUNCATE_SHORT],
+        candidate.source,
+        candidate.github_stars or "N/A",
+    )
     return True
 
 
@@ -119,6 +135,16 @@ def _is_quality_github_repo(candidate: RawCandidate) -> bool:
         "dataset",
         "leaderboard",
         "baseline",
+        "performance",
+        "comparison",
+        "vs",
+        "versus",
+        "testing",
+        "test suite",
+        "test framework",
+        "ranking",
+        "rating",
+        "score",
     ]
     has_benchmark_feature = any(
         feature in readme_lower for feature in benchmark_features
@@ -132,7 +158,15 @@ def _is_quality_github_repo(candidate: RawCandidate) -> bool:
 
 
 def _passes_keyword_rules(candidate: RawCandidate) -> bool:
-    """基于Phase7白/黑名单的关键词过滤"""
+    """基于Phase7白/黑名单的关键词过滤（权威来源豁免）"""
+
+    if candidate.source in TRUSTED_SOURCES:
+        logger.debug(
+            "权威来源豁免关键词检查: %s (%s)",
+            candidate.title[: constants.TITLE_TRUNCATE_SHORT],
+            candidate.source,
+        )
+        return True
 
     text = f"{candidate.title} {(candidate.abstract or '')}".lower()
 

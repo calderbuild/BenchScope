@@ -9,8 +9,8 @@ arxiv:
   enabled: true
   max_results: 50
   lookback_hours: 168  # 7天窗口
-  timeout_seconds: 10
-  max_retries: 3
+  timeout_seconds: 20  # 增大超时，适应复杂查询
+  max_retries: 2       # 减少重试次数，避免长时间阻塞
 
   # Phase 7: 聚焦MGX核心场景关键词
   keywords:

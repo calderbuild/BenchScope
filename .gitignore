@@ -69,3 +69,18 @@ Desktop.ini
 *.bak
 *.swp
 .cache/
+
+# 示例图片和临时资源
+image copy.png
+image.png
+*.png.bak
+*.jpg.bak
+
+# 临时文档（草稿、备份等）
+*_draft.md
+*_backup.md
+*_temp.md
+
+# Phase特定的临时文件
+.claude/specs/**/TEMP-*.md
+.claude/specs/**/DRAFT-*.md
