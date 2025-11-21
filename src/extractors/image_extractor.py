@@ -13,6 +13,7 @@ import httpx
 from bs4 import BeautifulSoup
 
 from src.common import constants
+from src.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -56,20 +57,38 @@ class ImageExtractor:
 
     @staticmethod
     async def extract_huggingface_image(model_id: str) -> Optional[str]:
-        """从HuggingFace模型卡片提取封面图"""
+        """从HuggingFace模型卡片提取封面图（携带认证token）"""
         model_url = f"https://huggingface.co/{model_id}"
-        return await ImageExtractor.extract_og_image(model_url)
+
+        # 从配置获取HuggingFace token
+        settings = get_settings()
+        extra_headers = {}
+        if settings.huggingface.token:
+            extra_headers["Authorization"] = f"Bearer {settings.huggingface.token}"
+
+        return await ImageExtractor.extract_og_image(
+            model_url, extra_headers=extra_headers
+        )
 
     @staticmethod
-    async def extract_og_image(webpage_url: str) -> Optional[str]:
-        """通用方法：读取网页<meta property=\"og:image\">"""
+    async def extract_og_image(
+        webpage_url: str, extra_headers: Optional[dict] = None
+    ) -> Optional[str]:
+        """通用方法：读取网页<meta property=\"og:image\">
+
+        Args:
+            webpage_url: 目标网页URL
+            extra_headers: 额外的HTTP headers（如HuggingFace token）
+        """
         try:
+            headers = {"User-Agent": "BenchScope/1.0"}
+            if extra_headers:
+                headers.update(extra_headers)
+
             async with httpx.AsyncClient(
                 timeout=constants.IMAGE_DOWNLOAD_TIMEOUT_SECONDS, follow_redirects=True
             ) as client:
-                resp = await client.get(
-                    webpage_url, headers={"User-Agent": "BenchScope/1.0"}
-                )
+                resp = await client.get(webpage_url, headers=headers)
                 resp.raise_for_status()
 
             soup = BeautifulSoup(resp.text, "html.parser")

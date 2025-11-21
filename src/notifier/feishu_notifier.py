@@ -172,22 +172,20 @@ class FeishuNotifier:
         high_priority: List[ScoredCandidate],
         medium_priority: List[ScoredCandidate],
     ) -> dict:
-        """构建统计摘要卡片 - 专业排版版"""
+        """构建统计摘要卡片 - 紧凑版"""
         avg_score = sum(c.total_score for c in qualified) / len(qualified)
 
-        # 统计数据源分布
+        # 统计数据源分布 - 简化为单行
         source_counts = {}
         for c in qualified:
             source_counts[c.source] = source_counts.get(c.source, 0) + 1
+        source_items = [
+            f"{self._format_source_name(src)} {cnt}"
+            for src, cnt in sorted(source_counts.items(), key=lambda x: x[1], reverse=True)
+        ]
+        source_breakdown = "  |  ".join(source_items)
 
-        # 格式化数据源分布
-        source_lines = []
-        for src, cnt in sorted(source_counts.items(), key=lambda x: x[1], reverse=True):
-            source_name = self._format_source_name(src)
-            source_lines.append(f"  {source_name}: {cnt} 条")
-        source_breakdown = "\n".join(source_lines)
-
-        # 统计分数分布
+        # 统计分数分布 - 合并为单行
         excellent = len([c for c in qualified if c.total_score >= 9.0])
         good = len([c for c in qualified if 8.0 <= c.total_score < 9.0])
         medium = len([c for c in qualified if 7.0 <= c.total_score < 8.0])
@@ -203,43 +201,27 @@ class FeishuNotifier:
         else:
             quality_indicator = "一般"
 
+        # 紧凑排版
         content = (
-            f"**采集时间**  {datetime.now().strftime('%Y-%m-%d %H:%M')}\n\n"
-            f"**候选统计**\n"
-            f"  高优先级 (≥8.0): {len(high_priority)} 条 (已发详细卡片)\n"
-            f"  中优先级 (6.0~7.9): {len(medium_priority)} 条 (已发摘要)\n"
-            f"  合格候选总计: {len(qualified)} 条\n\n"
-            f"**质量分析**\n"
-            f"  平均分: {avg_score:.2f} / 10  ({quality_indicator})\n"
-            f"  分数分布:\n"
-            f"    卓越 (9.0+): {excellent} 条\n"
-            f"    优秀 (8.0~8.9): {good} 条\n"
-            f"    良好 (7.0~7.9): {medium} 条\n"
-            f"    合格 (6.0~6.9): {pass_level} 条\n\n"
-            f"**来源分布**\n"
-            f"{source_breakdown}\n\n"
-            f"详细候选请查看上方消息或[飞书表格]({constants.FEISHU_BENCH_TABLE_URL})"
+            f"**{datetime.now().strftime('%Y-%m-%d %H:%M')}**  |  "
+            f"共 {len(qualified)} 条候选  |  "
+            f"平均 {avg_score:.1f}分 ({quality_indicator})\n\n"
+            f"**优先级**: 高 {len(high_priority)} 条 (已详细卡片)  |  "
+            f"中 {len(medium_priority)} 条 (已摘要)\n\n"
+            f"**分数分布**: 9.0+ {excellent}  |  8.0~8.9 {good}  |  7.0~7.9 {medium}  |  6.0~6.9 {pass_level}\n\n"
+            f"**数据源**: {source_breakdown}\n\n"
+            f"[查看飞书表格]({constants.FEISHU_BENCH_TABLE_URL})"
         )
 
         return {
             "msg_type": "interactive",
             "card": {
                 "header": {
-                    "title": {"tag": "plain_text", "content": "BenchScope 采集报告"},
+                    "title": {"tag": "plain_text", "content": "📊 采集汇总"},
                     "template": "blue",
                 },
                 "elements": [
                     {"tag": "div", "text": {"tag": "lark_md", "content": content}},
-                    {"tag": "hr"},
-                    {
-                        "tag": "note",
-                        "elements": [
-                            {
-                                "tag": "plain_text",
-                                "content": "BenchScope 自动推送  │  数据已同步至飞书表格  │  下次采集: 明日 09:00",
-                            }
-                        ],
-                    },
                 ],
             },
         }
