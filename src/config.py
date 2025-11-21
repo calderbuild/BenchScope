@@ -105,6 +105,7 @@ class HuggingFaceSourceSettings:
     min_downloads: int = constants.HUGGINGFACE_MIN_DOWNLOADS
     limit: int = constants.HUGGINGFACE_MAX_RESULTS
     lookback_days: int = constants.HUGGINGFACE_LOOKBACK_DAYS
+    token: Optional[str] = None
 
 
 @dataclass(slots=True)
@@ -319,6 +320,7 @@ def _load_sources_settings(path: Path) -> SourcesSettings:
                     "lookback_days", constants.HUGGINGFACE_LOOKBACK_DAYS
                 )
             ),
+            token=os.getenv("HUGGINGFACE_TOKEN"),
         ),
         techempower=TechEmpowerSourceSettings(
             enabled=bool(techempower_cfg.get("enabled", True)),

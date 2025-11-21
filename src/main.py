@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import subprocess
 import time
 from pathlib import Path
@@ -128,8 +129,9 @@ async def main() -> None:
     logger.info("=" * 60)
 
     # Step 0: 确保GROBID服务运行（用于PDF增强）
+    grobid_url = os.getenv("GROBID_URL", "http://localhost:8070")
     grobid_running = await ensure_grobid_running(
-        grobid_url=settings.grobid.url,
+        grobid_url=grobid_url,
         max_wait_seconds=60,
     )
     if not grobid_running:
