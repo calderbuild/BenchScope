@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import subprocess
+import time
 from pathlib import Path
 from typing import List
+
+import httpx
 
 from src.collectors import (
     ArxivCollector,
@@ -27,6 +31,94 @@ from src.storage import FeishuImageUploader, StorageManager
 logger = logging.getLogger(__name__)
 
 
+async def ensure_grobid_running(grobid_url: str, max_wait_seconds: int = 60) -> bool:
+    """确保GROBID服务运行，如果未运行则自动启动
+
+    Args:
+        grobid_url: GROBID服务URL（如 http://localhost:8070）
+        max_wait_seconds: 最大等待时间（秒）
+
+    Returns:
+        bool: GROBID服务是否成功运行
+    """
+    # 1. 检查GROBID是否已运行
+    try:
+        async with httpx.AsyncClient(timeout=3) as client:
+            resp = await client.get(f"{grobid_url}/api/isalive")
+            if resp.text.strip() == "true":
+                logger.info("✅ GROBID服务已运行: %s", grobid_url)
+                return True
+    except Exception:
+        logger.info("GROBID服务未运行，准备启动...")
+
+    # 2. 检查Docker是否可用
+    try:
+        subprocess.run(
+            ["docker", "--version"],
+            check=True,
+            capture_output=True,
+            timeout=5,
+        )
+    except Exception as exc:
+        logger.warning("Docker不可用，跳过GROBID启动: %s", exc)
+        return False
+
+    # 3. 检查GROBID容器是否存在但未运行
+    try:
+        result = subprocess.run(
+            ["docker", "ps", "-a", "--filter", "name=grobid", "--format", "{{.Names}}"],
+            check=True,
+            capture_output=True,
+            timeout=5,
+            text=True,
+        )
+        if "grobid" in result.stdout:
+            logger.info("发现已存在的GROBID容器，尝试启动...")
+            subprocess.run(["docker", "start", "grobid"], check=True, timeout=10)
+        else:
+            # 4. 启动新的GROBID容器
+            logger.info("启动GROBID Docker容器...")
+            subprocess.run(
+                [
+                    "docker",
+                    "run",
+                    "-d",
+                    "--name",
+                    "grobid",
+                    "--rm",
+                    "--init",
+                    "--ulimit",
+                    "core=0",
+                    "-p",
+                    "8070:8070",
+                    "lfoppiano/grobid:0.8.0",
+                ],
+                check=True,
+                timeout=30,
+                capture_output=True,
+            )
+    except Exception as exc:
+        logger.error("启动GROBID容器失败: %s", exc)
+        return False
+
+    # 5. 等待GROBID服务就绪
+    logger.info("等待GROBID服务启动（最多%d秒）...", max_wait_seconds)
+    start_time = time.time()
+    while time.time() - start_time < max_wait_seconds:
+        try:
+            async with httpx.AsyncClient(timeout=3) as client:
+                resp = await client.get(f"{grobid_url}/api/isalive")
+                if resp.text.strip() == "true":
+                    logger.info("✅ GROBID服务启动成功")
+                    return True
+        except Exception:
+            pass
+        await asyncio.sleep(2)
+
+    logger.error("GROBID服务启动超时")
+    return False
+
+
 async def main() -> None:
     settings = get_settings()
     _configure_logging(settings)
@@ -34,6 +126,16 @@ async def main() -> None:
     logger.info("=" * 60)
     logger.info("BenchScope Phase 2 启动")
     logger.info("=" * 60)
+
+    # Step 0: 确保GROBID服务运行（用于PDF增强）
+    grobid_running = await ensure_grobid_running(
+        grobid_url=settings.grobid.url,
+        max_wait_seconds=60,
+    )
+    if not grobid_running:
+        logger.warning("GROBID服务未运行，PDF增强功能将被禁用")
+    else:
+        logger.info("GROBID服务就绪，PDF增强功能已启用")
 
     # Step 1: 数据采集
     logger.info("[1/7] 数据采集...")
