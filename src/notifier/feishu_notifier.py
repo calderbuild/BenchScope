@@ -236,19 +236,6 @@ class FeishuNotifier:
 
         source_name = self._format_source_name(candidate.source)
 
-        content = (
-            f"**{candidate.title[:constants.TITLE_TRUNCATE_LONG]}**\n\n"
-            f"综合评分: **{candidate.total_score:.1f}** / 10  |  优先级: **{priority_label}**\n\n"
-            "**评分细项**\n"
-            f"活跃度 {candidate.activity_score:.1f}  |  "
-            f"可复现性 {candidate.reproducibility_score:.1f}  |  "
-            f"许可合规 {candidate.license_score:.1f}  |  "
-            f"任务新颖性 {candidate.novelty_score:.1f}  |  "
-            f"MGX适配度 {candidate.relevance_score:.1f}\n\n"
-            f"**来源**: {source_name}\n\n"
-            f"**评分依据**\n{candidate.reasoning}"
-        )
-
         actions = [
             {
                 "tag": "button",
@@ -276,8 +263,26 @@ class FeishuNotifier:
                 },
             )
 
+        # 构建卡片元素：标题 → 图片 → 内容
+        title_content = f"**{candidate.title[:constants.TITLE_TRUNCATE_LONG]}**"
+
+        detail_content = (
+            f"综合评分: **{candidate.total_score:.1f}** / 10  |  优先级: **{priority_label}**\n\n"
+            "**评分细项**\n"
+            f"活跃度 {candidate.activity_score:.1f}  |  "
+            f"可复现性 {candidate.reproducibility_score:.1f}  |  "
+            f"许可合规 {candidate.license_score:.1f}  |  "
+            f"任务新颖性 {candidate.novelty_score:.1f}  |  "
+            f"MGX适配度 {candidate.relevance_score:.1f}\n\n"
+            f"**来源**: {source_name}\n\n"
+            f"**评分依据**\n{candidate.reasoning}"
+        )
+
         elements = []
-        # 如果有飞书image_key，在卡片中显示图片
+        # 1. 显示标题
+        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": title_content}})
+
+        # 2. 如果有图片，在标题下方显示
         if candidate.hero_image_key:
             elements.append(
                 {
@@ -294,7 +299,8 @@ class FeishuNotifier:
             )
             elements.append({"tag": "hr"})
 
-        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": content}})
+        # 3. 显示详细内容
+        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": detail_content}})
         elements.append({"tag": "hr"})
         elements.append({"tag": "action", "actions": actions})
         elements.append(
