@@ -87,6 +87,27 @@ cp .env.example .env.local
 - `GITHUB_TOKEN` (可选) - 提升GitHub API速率限制
 - `REDIS_URL` (可选) - Redis缓存，提升30%性能
 
+### 系统依赖
+
+**Poppler**（PDF渲染，Phase 9.5 新增）：
+```bash
+# Ubuntu / Debian
+sudo apt-get install -y poppler-utils
+
+# macOS
+brew install poppler
+
+# Windows
+# 1) 下载: https://github.com/oschwartz10612/poppler-windows/releases/
+# 2) 解压并把 bin 目录加入 PATH
+# 3) 验证: pdftoppm -v
+```
+
+**GROBID**（PDF结构化解析，Phase 9 已集成自动启动）：
+```bash
+# 本地开发默认自动启动，GitHub Actions 已在流程中验证
+```
+
 ### 2. 运行主流程
 
 ```bash

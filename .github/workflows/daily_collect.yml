@@ -31,6 +31,15 @@ jobs:
           python-version: '3.11'
           cache: 'pip'  # 使用pip缓存，基于requirements.txt
 
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y poppler-utils
+
+      - name: Verify Poppler installation
+        run: |
+          pdftoppm -v
+
       - name: Install dependencies
         run: pip install -r requirements.txt
 

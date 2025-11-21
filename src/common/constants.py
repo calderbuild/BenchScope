@@ -18,6 +18,9 @@ ARXIV_PDF_PRIMARY_BASE: Final[str] = "https://arxiv.org/pdf"
 ARXIV_PDF_TIMEOUT_SECONDS: Final[int] = 30
 ARXIV_PDF_HTTP_MAX_RETRIES: Final[int] = 2
 ARXIV_PDF_HTTP_RETRY_DELAY_SECONDS: Final[float] = 5.0
+ARXIV_PDF_CACHE_DIR: Final[str] = "/tmp/arxiv_pdf_cache"  # PDF缓存目录
+ARXIV_IMAGE_CACHE_PREFIX: Final[str] = "arxiv_pdf_image:"
+ARXIV_IMAGE_CONVERT_DPI: Final[int] = 150  # pdf2image渲染DPI
 
 # ---- Collector 配置 ----
 ARXIV_MAX_RESULTS: Final[int] = 50

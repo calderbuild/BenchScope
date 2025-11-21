@@ -9,7 +9,7 @@ import hashlib
 import logging
 from datetime import datetime, timedelta
 from io import BytesIO
-from typing import Optional
+from typing import Optional, Union
 
 import httpx
 from PIL import Image
@@ -70,20 +70,30 @@ class FeishuImageUploader:
         logger.info("Tenant Access Token获取成功")
         return self._access_token
 
-    async def upload_image(self, image_url: str) -> Optional[str]:
-        """下载图片并上传到飞书，返回image_key"""
-        cache_key = f"{constants.IMAGE_CACHE_PREFIX}{hashlib.md5(image_url.encode()).hexdigest()}"
+    async def upload_image(self, image_source: Union[str, bytes]) -> Optional[str]:
+        """上传图片到飞书，支持URL与字节流"""
 
-        if self.redis:
-            try:
-                cached = await self.redis.get(cache_key)
-                if cached:
-                    logger.debug("命中Redis图片缓存: %s", image_url)
-                    return cached.decode()
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("读取图片缓存失败: %s", exc)
+        cache_key: Optional[str] = None
+        image_bytes: Optional[bytes] = None
 
-        image_bytes = await self._download_image(image_url)
+        if isinstance(image_source, str):
+            cache_key = f"{constants.IMAGE_CACHE_PREFIX}{hashlib.md5(image_source.encode()).hexdigest()}"
+            if self.redis and cache_key:
+                try:
+                    cached = await self.redis.get(cache_key)
+                    if cached:
+                        logger.debug("命中Redis图片缓存: %s", image_source)
+                        return cached.decode()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("读取图片缓存失败: %s", exc)
+
+            image_bytes = await self._download_image(image_source)
+        elif isinstance(image_source, bytes):
+            image_bytes = image_source
+        else:
+            logger.error("不支持的图片来源类型: %s", type(image_source))
+            return None
+
         if not image_bytes:
             return None
 
@@ -94,7 +104,7 @@ class FeishuImageUploader:
         if not image_key:
             return None
 
-        if self.redis:
+        if self.redis and cache_key:
             try:
                 await self.redis.setex(
                     cache_key, constants.IMAGE_CACHE_TTL_SECONDS, image_key.encode()

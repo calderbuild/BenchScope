@@ -27,6 +27,7 @@ from bs4 import XMLParsedAsHTMLWarning
 from scipdf.pdf import parse_pdf_to_dict  # type: ignore[import]
 
 from src.common import constants
+from src.extractors import ImageExtractor
 from src.models import RawCandidate
 
 # 过滤 scipdf_parser 库的 XML 解析警告
@@ -69,7 +70,7 @@ class PDFEnhancer:
             cache_dir: PDF 缓存目录，默认使用 /tmp/arxiv_pdf_cache
         """
         # 使用本地缓存目录，避免重复下载同一篇论文
-        self.cache_dir = Path(cache_dir or "/tmp/arxiv_pdf_cache")
+        self.cache_dir = Path(cache_dir or constants.ARXIV_PDF_CACHE_DIR)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
         # 自动判定 GROBID 服务：优先环境变量，其次本地探测，最后云端兜底
@@ -102,6 +103,8 @@ class PDFEnhancer:
             pdf_path = await self._download_pdf(arxiv_id)
             if not pdf_path:
                 return candidate
+
+            await self._generate_arxiv_cover(arxiv_id, pdf_path, candidate)
 
             pdf_content = await self._parse_pdf(pdf_path)
             if not pdf_content:
@@ -385,6 +388,21 @@ class PDFEnhancer:
         candidate.raw_metadata = metadata
 
         return candidate
+
+    async def _generate_arxiv_cover(
+        self, arxiv_id: str, pdf_path: Path, candidate: RawCandidate
+    ) -> None:
+        """生成arXiv首页预览图并写入hero_image_key"""
+
+        if candidate.hero_image_key:
+            return
+
+        image_key = await ImageExtractor.extract_arxiv_image(
+            str(pdf_path),
+            arxiv_id,
+        )
+        if image_key:
+            candidate.hero_image_key = image_key
 
     @staticmethod
     def _extract_arxiv_id(url: str) -> Optional[str]:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 import arxiv
@@ -89,14 +90,18 @@ class ArxivCollector:
                 continue
 
             raw_authors, raw_institutions = self._extract_authors_institutions(paper)
+            arxiv_id = paper.entry_id.split("/")[-1].split("v")[0]
 
             # 从论文摘要和comment中提取数据集URL
             text_to_search = f"{paper.summary or ''}\n{paper.comment or ''}"
             dataset_url = URLExtractor.extract_dataset_url(text_to_search)
 
-            hero_image_url = await ImageExtractor.extract_arxiv_image(
-                paper.pdf_url or paper.entry_id
-            )
+            hero_image_key = None
+            cached_pdf = Path(constants.ARXIV_PDF_CACHE_DIR) / f"{arxiv_id}.pdf"
+            if cached_pdf.exists():
+                hero_image_key = await ImageExtractor.extract_arxiv_image(
+                    str(cached_pdf), arxiv_id
+                )
 
             candidates.append(
                 RawCandidate(
@@ -111,11 +116,12 @@ class ArxivCollector:
                     raw_authors=raw_authors,
                     raw_institutions=raw_institutions,
                     raw_metadata={
-                        "arxiv_id": paper.entry_id.split("/")[-1],
+                        "arxiv_id": arxiv_id,
                         "categories": ",".join(paper.categories or []),
                         "comment": paper.comment or "",
                     },
-                    hero_image_url=hero_image_url,
+                    hero_image_url=None,
+                    hero_image_key=hero_image_key,
                 )
             )
 

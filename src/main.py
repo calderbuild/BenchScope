@@ -224,10 +224,19 @@ async def main() -> None:
     # Step 5: 图片上传到飞书
     logger.info("[5/7] 图片上传到飞书...")
     uploader = FeishuImageUploader(settings)
-    upload_targets = [c for c in scored if c.hero_image_url]
+    upload_targets = [
+        c
+        for c in scored
+        if c.hero_image_url
+        and not c.hero_image_key
+        and c.hero_image_url.startswith(("http://", "https://"))
+    ]
     success_count = 0
     for candidate in upload_targets:
         try:
+            if candidate.hero_image_url is None:
+                # 理论不应出现，双重保护避免类型告警
+                continue
             candidate.hero_image_key = await uploader.upload_image(
                 candidate.hero_image_url
             )

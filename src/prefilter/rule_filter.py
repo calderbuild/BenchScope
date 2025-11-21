@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from datetime import datetime, timezone
 from typing import List
 
@@ -16,14 +17,60 @@ TRUSTED_SOURCES: set[str] = {"techempower", "dbengines", "helm"}
 
 
 def prefilter(candidate: RawCandidate) -> bool:
-    """Phase 3 基线预筛选规则（Phase 2优化版）"""
+    """Phase 3 基线预筛选规则（Phase 2优化版）
+
+    兼容老接口，内部复用带原因版以便统计。
+    """
+
+    passed, _reason = _prefilter_with_reason(candidate)
+    return passed
+
+
+def prefilter_batch(candidates: List[RawCandidate]) -> List[RawCandidate]:
+    """批量预筛选"""
+
+    if not candidates:
+        return []
+
+    reason_stats: Counter[str] = Counter()
+    filtered: List[RawCandidate] = []
+
+    for candidate in candidates:
+        passed, reason = _prefilter_with_reason(candidate)
+        reason_stats[reason] += 1
+        if passed:
+            filtered.append(candidate)
+
+    rate = 100 * (1 - len(filtered) / len(candidates))
+    # 只输出被过滤的主要原因，避免日志过长
+    drop_reasons = {
+        k: v for k, v in reason_stats.items() if k not in {"pass"} and v > 0
+    }
+    reason_text = (
+        ", ".join(f"{k}:{v}" for k, v in sorted(drop_reasons.items(), key=lambda x: -x[1]))
+        if drop_reasons
+        else "无"
+    )
+
+    logger.info(
+        "预筛选完成,输入%d条,输出%d条,过滤率%.1f%%,过滤原因分布: %s",
+        len(candidates),
+        len(filtered),
+        rate,
+        reason_text,
+    )
+    return filtered
+
+
+def _prefilter_with_reason(candidate: RawCandidate) -> tuple[bool, str]:
+    """返回是否通过及原因，方便统计定位问题"""
 
     if (
         not candidate.title
         or len(candidate.title.strip()) < constants.PREFILTER_MIN_TITLE_LENGTH
     ):
         logger.debug("过滤: 标题过短 - %s", candidate.title)
-        return False
+        return False, "title_short"
 
     # 摘要长度要求：HuggingFace/HELM/Semantic Scholar来源豁免（官方数据源，描述本身较短）
     if candidate.source not in {"helm", "semantic_scholar", "huggingface"}:
@@ -32,11 +79,11 @@ def prefilter(candidate: RawCandidate) -> bool:
             or len(candidate.abstract.strip()) < constants.PREFILTER_MIN_ABSTRACT_LENGTH
         ):
             logger.debug("过滤: 摘要过短 - %s", candidate.title)
-            return False
+            return False, "abstract_short"
 
     if not candidate.url or not candidate.url.startswith(("http://", "https://")):
         logger.debug("过滤: URL无效 - %s", candidate.url)
-        return False
+        return False, "invalid_url"
 
     valid_sources = {
         "arxiv",
@@ -49,13 +96,13 @@ def prefilter(candidate: RawCandidate) -> bool:
     }
     if candidate.source not in valid_sources:
         logger.debug("过滤: 来源不在白名单 - %s", candidate.source)
-        return False
+        return False, "invalid_source"
 
     if not _passes_keyword_rules(candidate):
-        return False
+        return False, "keyword_rule"
 
     if candidate.source == "github" and not _is_quality_github_repo(candidate):
-        return False
+        return False, "github_quality"
 
     logger.debug(
         "✅ 通过预筛选: %s (source=%s, stars=%s)",
@@ -63,24 +110,7 @@ def prefilter(candidate: RawCandidate) -> bool:
         candidate.source,
         candidate.github_stars or "N/A",
     )
-    return True
-
-
-def prefilter_batch(candidates: List[RawCandidate]) -> List[RawCandidate]:
-    """批量预筛选"""
-
-    if not candidates:
-        return []
-
-    filtered = [c for c in candidates if prefilter(c)]
-    rate = 100 * (1 - len(filtered) / len(candidates))
-    logger.info(
-        "预筛选完成,输入%d条,输出%d条,过滤率%.1f%%",
-        len(candidates),
-        len(filtered),
-        rate,
-    )
-    return filtered
+    return True, "pass"
 
 
 def _is_quality_github_repo(candidate: RawCandidate) -> bool:
