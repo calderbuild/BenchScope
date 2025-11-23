@@ -653,7 +653,7 @@ class LLMScorer:
                     fix_prompt = self._build_length_fix_prompt(violations)
                     messages.append({"role": "assistant", "content": content})
                     messages.append({"role": "user", "content": fix_prompt})
-                    logger.warning(
+                    logger.debug(
                         "LLM推理长度不足，触发第%d次纠偏: %s",
                         repair_attempt,
                         candidate.title[:50],

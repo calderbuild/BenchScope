@@ -8,7 +8,7 @@ import hmac
 import hashlib
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Optional
 
 import httpx
@@ -39,17 +39,32 @@ class FeishuNotifier:
             logger.info("无候选需要通知")
             return
 
-        qualified = [
-            c for c in candidates if c.total_score >= constants.MIN_TOTAL_SCORE
-        ]
-        if not qualified:
-            logger.info("无高分候选,跳过通知")
+        # 预过滤：相关性、时间窗、任务领域
+        candidates = self._prefilter_for_push(candidates)
+        if not candidates:
+            logger.info("预过滤后无候选可推送")
             return
 
-        # 分层处理
-        high_priority = [c for c in qualified if c.priority == "high"]
-        medium_priority = [c for c in qualified if c.priority == "medium"]
-        low_priority = [c for c in qualified if c.priority == "low"]
+        if not constants.ENABLE_SMART_PUSH_STRATEGY:
+            qualified = [
+                c for c in candidates if c.total_score >= constants.MIN_TOTAL_SCORE
+            ]
+            if not qualified:
+                logger.info("无高分候选,跳过通知")
+                return
+            high_priority = [c for c in qualified if c.priority == "high"]
+            medium_priority = [c for c in qualified if c.priority == "medium"]
+            low_priority = [c for c in qualified if c.priority == "low"]
+        else:
+            high_priority, medium_priority, low_priority = self._smart_filter_candidates(
+                candidates
+            )
+
+        if not high_priority and not medium_priority:
+            logger.info("智能推送策略下无可推送候选")
+            return
+
+        covered_domains = self._collect_domains(high_priority + medium_priority)
 
         # 1. 推送所有高优先级卡片
         for candidate in high_priority:
@@ -58,12 +73,15 @@ class FeishuNotifier:
 
         # 2. 推送中优先级摘要 (新增)
         if medium_priority:
-            await self._send_medium_priority_summary(medium_priority, low_priority)
+            await self._send_medium_priority_summary(
+                medium_priority, low_priority, covered_domains
+            )
             await asyncio.sleep(constants.FEISHU_RATE_LIMIT_DELAY)
 
         # 3. 推送统计摘要卡片 (支持markdown)
+        summary_candidates = self._dedup_by_url(high_priority + medium_priority)
         summary_card = self._build_summary_card(
-            qualified, high_priority, medium_priority
+            summary_candidates, high_priority, medium_priority
         )
         await self._send_webhook(summary_card)
 
@@ -137,111 +155,318 @@ class FeishuNotifier:
             return f"Stars: {stars/1000:.1f}k"
         return f"Stars: {stars}"
 
-    async def _send_medium_priority_summary(
-        self, candidates: List[ScoredCandidate], low_candidates: Optional[List[ScoredCandidate]] = None
-    ) -> None:
-        """发送中优先级候选摘要卡片 - 专业排版版"""
-        top_limit = constants.FEISHU_MEDIUM_TOPK
-        top_candidates = sorted(candidates, key=lambda x: x.total_score, reverse=True)[
-            :top_limit
-        ]
-        avg_medium_score = sum(c.total_score for c in candidates) / len(candidates)
+    @staticmethod
+    def _canonical_url(candidate: ScoredCandidate) -> str:
+        """统一候选的唯一键，优先使用URL。"""
 
-        # 计算分数范围
+        return candidate.url or candidate.github_url or ""
+
+    @staticmethod
+    def _age_days(candidate: ScoredCandidate) -> int:
+        """计算候选距今天数，缺失日期视为远期。"""
+
+        if not candidate.publish_date:
+            return 10**6
+        publish_dt = candidate.publish_date
+        if publish_dt.tzinfo is None:
+            publish_dt = publish_dt.replace(tzinfo=timezone.utc)
+        return (datetime.now(tz=publish_dt.tzinfo) - publish_dt).days
+
+    def _collect_domains(self, candidates: List[ScoredCandidate]) -> set[str]:
+        """收集已有任务领域，便于补位决策。"""
+
+        domains: set[str] = set()
+        for cand in candidates:
+            domain = (cand.task_domain or constants.DEFAULT_TASK_DOMAIN).strip()
+            if domain:
+                domains.add(domain)
+        return domains
+
+    def _dedup_by_url(self, items: List[ScoredCandidate]) -> List[ScoredCandidate]:
+        """按URL去重，保持顺序。"""
+
+        seen: set[str] = set()
+        result: list[ScoredCandidate] = []
+        for cand in items:
+            key = self._canonical_url(cand)
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(cand)
+        return result
+
+    @staticmethod
+    def _primary_link(candidate: ScoredCandidate) -> str:
+        """选择点击跳转的主链接。
+
+        优先：arXiv等论文源用 paper_url，其次 url；GitHub 源用 url；兜底 github_url。
+        """
+
+        if candidate.source == "arxiv" and candidate.paper_url:
+            return candidate.paper_url
+        if candidate.url:
+            return candidate.url
+        if candidate.github_url:
+            return candidate.github_url
+        return ""
+
+    def _prefilter_for_push(self, candidates: List[ScoredCandidate]) -> List[ScoredCandidate]:
+        """推送前过滤：最新优先、相关性兜底、任务域白名单、总量限额。
+
+        规则：
+        - 核心任务域放宽：任务域∈{Coding,Backend,WebDev,GUI} 且 total_score>=5.0 → 保留
+        - 最新高相关/高新颖直通：
+          * ≤7天 且 relevance>=7.0 且 核心域 → 保留（忽略总分）
+          * ≤14天 且 novelty>=8.0 且 核心域 → 保留
+        - 基础过滤：relevance_score < PUSH_RELEVANCE_FLOOR 直接丢弃
+        - 发布超过 PUSH_MAX_AGE_DAYS，除非 total_score >= 8.0 才保留
+        - 任务领域不在已知列表时，仅当 total_score>=8.0 且发布日期<=PUSH_MAX_AGE_DAYS
+        - 按新鲜度优先排序，其次总分
+        - 总量上限 PUSH_TOTAL_CAP
+        """
+
+        if not candidates:
+            return []
+
+        allowed_domains = set(constants.TASK_DOMAIN_OPTIONS)
+        core_domains = {"Coding", "Backend", "WebDev", "GUI"}
+        filtered: List[ScoredCandidate] = []
+
+        for cand in candidates:
+            # 相关性过滤
+            if cand.relevance_score < constants.PUSH_RELEVANCE_FLOOR:
+                continue
+
+            # 时间过滤
+            publish_dt = cand.publish_date
+            age_days = None
+            if publish_dt:
+                if publish_dt.tzinfo is None:
+                    publish_dt = publish_dt.replace(tzinfo=timezone.utc)
+                age_days = (datetime.now(tz=publish_dt.tzinfo) - publish_dt).days
+            domain = cand.task_domain or constants.DEFAULT_TASK_DOMAIN
+            core_domain = domain in core_domains
+
+            # 最新高相关/高新颖直通
+            if age_days is not None:
+                if age_days <= 7 and cand.relevance_score >= 7.0 and core_domain:
+                    filtered.append(cand)
+                    continue
+                if age_days <= 14 and cand.novelty_score >= 8.0 and core_domain:
+                    filtered.append(cand)
+                    continue
+
+            # 核心域放宽阈值
+            if core_domain and cand.total_score >= 5.0:
+                filtered.append(cand)
+                continue
+
+            # 时间过滤
+            if age_days is not None and age_days > constants.PUSH_MAX_AGE_DAYS:
+                if cand.total_score < 8.0:
+                    continue
+
+            # 任务领域过滤
+            if domain not in allowed_domains:
+                if cand.total_score < 8.0:
+                    continue
+
+            filtered.append(cand)
+
+        # 按新鲜度优先，其次分数
+        def sort_key(c: ScoredCandidate) -> tuple[int, float]:
+            age = self._age_days(c)
+            return (age, -c.total_score)
+
+        filtered = sorted(filtered, key=sort_key)
+
+        # 总量上限
+        if len(filtered) > constants.PUSH_TOTAL_CAP:
+            filtered = filtered[: constants.PUSH_TOTAL_CAP]
+
+        return filtered
+
+    def _smart_filter_candidates(
+        self, candidates: List[ScoredCandidate]
+    ) -> tuple[List[ScoredCandidate], List[ScoredCandidate], List[ScoredCandidate]]:
+        """按来源阈值、TopK与任务领域补位生成推送列表。"""
+
+        if not candidates:
+            return [], [], []
+
+        high: list[ScoredCandidate] = []
+        medium: list[ScoredCandidate] = []
+        low: list[ScoredCandidate] = []
+
+        for cand in candidates:
+            score = cand.total_score
+            if score >= 8.0:
+                high.append(cand)
+            elif score >= 6.0:
+                medium.append(cand)
+            else:
+                low.append(cand)
+
+        # 低分但满足来源阈值的候选提升至中优
+        promoted: list[ScoredCandidate] = []
+        for cand in list(low):
+            source = (cand.source or "default").lower()
+            threshold = constants.SOURCE_SCORE_THRESHOLDS.get(
+                source, constants.SOURCE_SCORE_THRESHOLDS["default"]
+            )
+            if cand.total_score < threshold:
+                continue
+            if source == "arxiv" and cand.relevance_score < constants.ARXIV_MIN_RELEVANCE:
+                continue
+            promoted.append(cand)
+            medium.append(cand)
+            low.remove(cand)
+
+        if promoted:
+            logger.info("来源阈值提升 %d 条至中优", len(promoted))
+
+        # 每来源 TopK 保底（最新优先，其次高分）
+        source_groups: dict[str, list[ScoredCandidate]] = {}
+        for cand in candidates:
+            src = (cand.source or "default").lower()
+            source_groups.setdefault(src, []).append(cand)
+
+        medium_urls = {self._canonical_url(c) for c in medium}
+        high_urls = {self._canonical_url(c) for c in high}
+
+        for source, group in source_groups.items():
+            topk = constants.PER_SOURCE_TOPK_PUSH.get(source, 0)
+            if topk <= 0:
+                continue
+            sorted_group = sorted(
+                group,
+                key=lambda c: (self._age_days(c), -c.total_score),
+            )
+            picked = 0
+            for cand in sorted_group:
+                url_key = self._canonical_url(cand)
+                if url_key in medium_urls or url_key in high_urls:
+                    continue
+                medium.append(cand)
+                medium_urls.add(url_key)
+                picked += 1
+                if picked >= topk:
+                    break
+
+        # 任务领域补位：缺席领域从low中按新鲜度+分数补足
+        if constants.LOW_PICK_BY_TASK_ENABLED:
+            present_domains = self._collect_domains(high + medium)
+            priority_domains = [
+                "Coding",
+                "Backend",
+                "WebDev",
+                "GUI",
+                "ToolUse",
+                "Collaboration",
+                "LLM/AgentOps",
+                "Reasoning",
+            ]
+            low_sorted = sorted(
+                low,
+                key=lambda c: (self._age_days(c), -c.total_score),
+            )
+            for domain in priority_domains:
+                if domain in present_domains:
+                    continue
+                needed = constants.LOW_PICK_TASK_TOPK
+                for cand in low_sorted:
+                    if (cand.task_domain or constants.DEFAULT_TASK_DOMAIN) != domain:
+                        continue
+                    if cand.total_score < constants.LOW_PICK_SCORE_FLOOR:
+                        continue
+                    url_key = self._canonical_url(cand)
+                    if url_key in medium_urls or url_key in high_urls:
+                        continue
+                    medium.append(cand)
+                    medium_urls.add(url_key)
+                    present_domains.add(domain)
+                    needed -= 1
+                    if needed <= 0:
+                        break
+
+        # 去重后返回
+        medium = self._dedup_by_url(medium)
+        high = self._dedup_by_url(high)
+        low = [
+            c
+            for c in low
+            if self._canonical_url(c) not in medium_urls
+            and self._canonical_url(c) not in high_urls
+        ]
+
+        return high, medium, low
+
+    async def _send_medium_priority_summary(
+        self,
+        candidates: List[ScoredCandidate],
+        low_candidates: Optional[List[ScoredCandidate]] = None,
+        covered_domains: Optional[set[str]] = None,
+    ) -> None:
+        """发送中优摘要：两分区（最新推荐 + 任务域补位）。"""
+        if not candidates:
+            return
+
+        # 概览
+        avg_medium_score = sum(c.total_score for c in candidates) / len(candidates)
         scores = [c.total_score for c in candidates]
         min_score = min(scores)
         max_score = max(scores)
 
-        # 构建内容 - 专业排版
-        content = (
-            f"**候选概览**\n"
-            f"  总数: {len(candidates)} 条  │  平均分: {avg_medium_score:.1f} / 10  │  分数区间: {min_score:.1f} ~ {max_score:.1f}\n\n"
-            f"**Top {min(top_limit, len(top_candidates))} 推荐**\n\n"
+        content_lines: list[str] = []
+        content_lines.append(
+            f"**候选概览**\n  总数: {len(candidates)} 条  │  平均分: {avg_medium_score:.1f} / 10  │  分数区间: {min_score:.1f} ~ {max_score:.1f}"
         )
 
-        # 每来源补齐至少1条，提升多样性（包含低优先级候选池）
-        per_source_limit = constants.FEISHU_PER_SOURCE_TOPK
-        per_source_picks: dict[str, ScoredCandidate] = {}
-        if per_source_limit > 0:
-            pool = candidates + (low_candidates or [])
-            sorted_by_source = sorted(
-                pool, key=lambda x: x.total_score, reverse=True
-            )
-            for cand in sorted_by_source:
-                src = (cand.source or "unknown").lower()
-                if src not in per_source_picks and len(per_source_picks) < len(
-                    constants.FEISHU_SOURCE_NAME_MAP
-                ):
-                    per_source_picks[src] = cand
-                if len(per_source_picks) >= len(constants.FEISHU_SOURCE_NAME_MAP):
-                    break
+        # 最新推荐（≤30天且已通过预过滤），按 时间↑ → 相关性↓ → 总分↓
+        filtered_latest: list[ScoredCandidate] = []
+        seen_titles: set[str] = set()
 
-        for i, c in enumerate(top_candidates, 1):
-            title = (
-                c.title[: constants.TITLE_TRUNCATE_MEDIUM] + "..."
-                if len(c.title) > constants.TITLE_TRUNCATE_MEDIUM
-                else c.title
-            )
-            source_name = self._format_source_name(c.source)
-            institution = self._format_institution(c)
-            stars_text = self._format_stars(c.github_stars) if c.source == "github" else ""
+        for cand in sorted(
+            candidates,
+            key=lambda c: (
+                self._age_days(c),
+                -c.relevance_score,
+                -c.total_score,
+            ),
+        ):
+            # 终极时间过滤：无日期直接丢弃；超过30天且分<8丢弃
+            age = self._age_days(cand)
+            if age == 10**6:
+                continue
+            if age > constants.PUSH_MAX_AGE_DAYS and cand.total_score < 8.0:
+                continue
 
-            info_parts = []
-            if institution:
-                info_parts.append(institution)
-            if stars_text:
-                info_parts.append(stars_text)
-            info_parts.append(f"[查看详情]({c.url})")
-            info_line = "  │  ".join(info_parts)
+            # 标题去重（忽略大小写和多余空格）
+            norm_title = " ".join((cand.title or "").lower().split())
+            if norm_title in seen_titles:
+                continue
+            seen_titles.add(norm_title)
 
-            content += (
-                f"**{i}. {title}**\n"
-                f"   来源: {source_name}  │  评分: {c.total_score:.1f}  │  "
-                f"活跃度: {c.activity_score:.1f}  │  可复现性: {c.reproducibility_score:.1f}  │  "
-                f"MGX适配度: {c.relevance_score:.1f}\n"
-                f"   {info_line}\n\n"
-            )
+            filtered_latest.append(cand)
+            if len(filtered_latest) >= constants.MAIN_RECOMMENDATION_LIMIT:
+                break
 
-        # 按来源精选分区
-        if per_source_picks:
-            content += "**按来源精选**\n\n"
-            for src, cand in per_source_picks.items():
-                title = (
-                    cand.title[: constants.TITLE_TRUNCATE_MEDIUM] + "..."
-                    if len(cand.title) > constants.TITLE_TRUNCATE_MEDIUM
-                    else cand.title
-                )
-                source_name = self._format_source_name(cand.source)
-                institution = self._format_institution(cand)
-                stars_text = (
-                    self._format_stars(cand.github_stars)
-                    if cand.source == "github"
-                    else ""
-                )
-                info_parts = []
-                if institution:
-                    info_parts.append(institution)
-                if stars_text:
-                    info_parts.append(stars_text)
-                info_parts.append(f"[查看详情]({cand.url})")
-                info_line = "  │  ".join(info_parts)
-                content += (
-                    f"- {source_name}: {title} （评分{cand.total_score:.1f}，MGX {cand.relevance_score:.1f}）\n"
-                    f"  {info_line}\n"
-                )
-            content += "\n"
+        main_list = filtered_latest
+        content_lines.append("**最新推荐**")
+        content_lines.extend(self._render_brief_items(main_list))
 
-        # 低优先精选分区（papers/datasets）
-        if constants.FEISHU_LOW_PICK_ENABLED:
-            low_section = self._build_low_pick_section(
-                low_candidates if low_candidates is not None else candidates
-            )
-            if low_section:
-                content += "**Latest Papers / Datasets**\n\n"
-                content += low_section + "\n"
+        # 任务域补位（如果核心域缺席，则从剩余候选或低优池补1条，无分数下限）
+        task_fill_section = self._build_task_fill_section(
+            main_list,
+            (low_candidates if low_candidates is not None else []) + candidates,
+            covered_domains,
+            allow_any_score=True,
+        )
+        if task_fill_section:
+            content_lines.append("**任务域补位**")
+            content_lines.append(task_fill_section)
 
-        if len(candidates) > top_limit:
-            content += f"\n其余 {len(candidates)-top_limit} 条候选可在飞书表格查看\n"
+        content = "\n\n".join(content_lines) + "\n"
 
         card = {
             "msg_type": "interactive",
@@ -310,10 +535,93 @@ class FeishuNotifier:
                     cand.publish_date.strftime("%Y-%m-%d") if cand.publish_date else "近期"
                 )
                 picks.append(
-                    f"- {source_name}: {title} （MGX {cand.relevance_score:.1f}, {date_str}） [查看详情]({cand.url})"
+                    f"- {source_name}: {title} （MGX {cand.relevance_score:.1f}, {date_str}） [查看详情]({self._primary_link(cand)})"
                 )
 
         return "\n".join(picks)
+
+    def _render_brief_items(self, items: List[ScoredCandidate], tag: str | None = None) -> List[str]:
+        """简洁行渲染，提升可扫读性。"""
+
+        lines: list[str] = []
+        for c in items:
+            title = c.title or "(无标题)"
+            source_name = self._format_source_name(c.source)
+            domain = c.task_domain or constants.DEFAULT_TASK_DOMAIN
+            age = self._age_days(c)
+            tag_text = tag or ""
+            labels = []
+            if age <= 7:
+                labels.append("New")
+            if tag_text:
+                labels.append(tag_text)
+            label_str = "/".join(labels) if labels else ""
+
+            date_str = c.publish_date.strftime("%Y-%m-%d") if c.publish_date else "近期"
+            meta = f"[{source_name}] {domain}｜{c.total_score:.1f}分" + (f"｜{label_str}" if label_str else "") + f"｜{date_str}"
+            subs = (
+                f"相关 {c.relevance_score:.1f}｜新颖 {c.novelty_score:.1f}｜"
+                f"活跃 {c.activity_score:.1f}｜复现 {c.reproducibility_score:.1f}"
+            )
+
+            lines.append(
+                f"- **{title}**  \n  {meta}  \n  {subs}  [查看详情]({self._primary_link(c)})"
+            )
+        return lines
+
+    def _build_task_fill_section(
+        self,
+        medium_candidates: List[ScoredCandidate],
+        low_candidates: List[ScoredCandidate],
+        covered_domains: Optional[set[str]] = None,
+        allow_any_score: bool = False,
+    ) -> str:
+        """按任务领域补位，确保关键领域曝光。
+
+        allow_any_score=True 时，不满足 LOW_PICK_SCORE_FLOOR 也可用最新候选兜底。
+        """
+
+        if not constants.LOW_PICK_BY_TASK_ENABLED:
+            return ""
+
+        present = covered_domains or self._collect_domains(medium_candidates)
+        priority_domains = list(constants.CORE_DOMAINS)
+
+        lines: list[str] = []
+        sorted_pool = sorted(
+            low_candidates,
+            key=lambda c: (self._age_days(c), -c.total_score),
+        )
+
+        missing_domains: list[str] = []
+        for domain in priority_domains:
+            if domain in present:
+                continue
+            picked = 0
+            for cand in sorted_pool:
+                cand_domain = cand.task_domain or constants.DEFAULT_TASK_DOMAIN
+                if cand_domain != domain:
+                    continue
+                if not allow_any_score and cand.total_score < constants.TASK_FILL_MIN_SCORE:
+                    continue
+                date_str = (
+                    cand.publish_date.strftime("%Y-%m-%d")
+                    if cand.publish_date
+                    else "近期"
+                )
+                title = cand.title or "(无标题)"
+                source_name = self._format_source_name(cand.source)
+                lines.append(
+                    f"- {domain}: **{title}**｜{cand.total_score:.1f}分｜{date_str}｜{source_name}  [查看详情]({self._primary_link(cand)})"
+                )
+                present.add(domain)
+                picked += 1
+                if picked >= constants.TASK_FILL_PER_DOMAIN_LIMIT:
+                    break
+            if picked == 0:
+                missing_domains.append(domain)
+
+        return "\n".join(lines)
 
     def _build_summary_card(
         self,
@@ -389,7 +697,7 @@ class FeishuNotifier:
             {
                 "tag": "button",
                 "text": {"content": "查看详情", "tag": "plain_text"},
-                "url": candidate.url,
+                "url": self._primary_link(candidate),
                 "type": "primary",
             },
             {
@@ -400,22 +708,9 @@ class FeishuNotifier:
             },
         ]
 
-        # 如果有GitHub链接，添加GitHub按钮
-        if candidate.github_url and candidate.github_url != candidate.url:
-            actions.insert(
-                1,
-                {
-                    "tag": "button",
-                    "text": {"content": "GitHub", "tag": "plain_text"},
-                    "url": candidate.github_url,
-                    "type": "default",
-                },
-        )
-
-        # 构建卡片元素：标题 → 图片 → 内容
+        # 构建卡片元素：标题 → 内容
         title_content = f"**{candidate.title[:constants.TITLE_TRUNCATE_LONG]}**"
 
-        # 统一展示机构与Stars，保持与中优先级卡片一致
         institution = self._format_institution(candidate)
         stars_text = (
             self._format_stars(candidate.github_stars)
@@ -442,27 +737,7 @@ class FeishuNotifier:
         )
 
         elements = []
-        # 1. 显示标题
         elements.append({"tag": "div", "text": {"tag": "lark_md", "content": title_content}})
-
-        # 2. 如果有图片，在标题下方显示
-        if candidate.hero_image_key:
-            elements.append(
-                {
-                    "tag": "img",
-                    "img_key": candidate.hero_image_key,
-                    "alt": {
-                        "tag": "plain_text",
-                        "content": f"{candidate.title} 预览图",
-                    },
-                    "preview": True,
-                    "scale_type": "crop_center",
-                    "size": "large",
-                }
-            )
-            elements.append({"tag": "hr"})
-
-        # 3. 显示详细内容
         elements.append({"tag": "div", "text": {"tag": "lark_md", "content": detail_content}})
         elements.append({"tag": "hr"})
         elements.append({"tag": "action", "actions": actions})

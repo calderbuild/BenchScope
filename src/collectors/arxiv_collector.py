@@ -14,7 +14,6 @@ from src.common import constants
 from src.common.url_extractor import URLExtractor
 from src.config import Settings, get_settings
 from src.models import RawCandidate
-from src.extractors import ImageExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -96,13 +95,6 @@ class ArxivCollector:
             text_to_search = f"{paper.summary or ''}\n{paper.comment or ''}"
             dataset_url = URLExtractor.extract_dataset_url(text_to_search)
 
-            hero_image_key = None
-            cached_pdf = Path(constants.ARXIV_PDF_CACHE_DIR) / f"{arxiv_id}.pdf"
-            if cached_pdf.exists():
-                hero_image_key = await ImageExtractor.extract_arxiv_image(
-                    str(cached_pdf), arxiv_id
-                )
-
             candidates.append(
                 RawCandidate(
                     title=paper.title.strip(),
@@ -121,7 +113,7 @@ class ArxivCollector:
                         "comment": paper.comment or "",
                     },
                     hero_image_url=None,
-                    hero_image_key=hero_image_key,
+                    hero_image_key=None,
                 )
             )
 

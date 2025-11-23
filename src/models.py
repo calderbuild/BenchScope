@@ -35,7 +35,7 @@ class RawCandidate:
     github_url: Optional[str] = None
     dataset_url: Optional[str] = None
     hero_image_url: Optional[str] = None  # Phase 9: 图片原始URL
-    hero_image_key: Optional[str] = None  # Phase 9: 飞书image_key
+    hero_image_key: Optional[str] = None  # Phase 9: 飞书image_key (已废弃)
     # Phase 8新增：采集阶段粗提取的元数据
     raw_metrics: Optional[List[str]] = None  # 原始指标文本
     raw_baselines: Optional[List[str]] = None  # 原始baseline文本
@@ -68,7 +68,7 @@ class ScoredCandidate:
     github_url: Optional[str] = None
     dataset_url: Optional[str] = None
     hero_image_url: Optional[str] = None
-    hero_image_key: Optional[str] = None
+    hero_image_key: Optional[str] = None  # 已废弃
     raw_metadata: Dict[str, str] = field(default_factory=dict)
     raw_metrics: Optional[List[str]] = None
     raw_baselines: Optional[List[str]] = None

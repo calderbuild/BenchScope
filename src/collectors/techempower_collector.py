@@ -28,6 +28,7 @@ class TechEmpowerCollector:
         "update",
         "plaintext",
     )
+    RUNS_LIMIT = 3
 
     def __init__(self, settings: Optional[Settings] = None) -> None:
         self.settings = settings or get_settings()
@@ -49,21 +50,25 @@ class TechEmpowerCollector:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 index_resp = await client.get(self.base_url)
                 index_resp.raise_for_status()
-                latest_run = self._parse_latest_run(index_resp.text)
-                if not latest_run:
+                run_list = self._parse_runs(index_resp.text)
+                if not run_list:
                     logger.warning("未获取到TechEmpower测试轮次")
                     return []
 
-                run_uuid = latest_run["uuid"]
-                run_meta = await self._fetch_run_metadata(client, run_uuid)
-                if not run_meta:
-                    logger.warning("TechEmpower运行元数据为空, uuid=%s", run_uuid)
-                    return []
+                candidates: List[RawCandidate] = []
+                for run in run_list:
+                    run_uuid = run["uuid"]
+                    run_meta = await self._fetch_run_metadata(client, run_uuid)
+                    if not run_meta:
+                        logger.warning("TechEmpower运行元数据为空, uuid=%s", run_uuid)
+                        continue
 
-                raw_payload = await self._fetch_raw_payload(client, run_meta)
-                if not raw_payload:
-                    logger.warning("TechEmpower原始数据为空, uuid=%s", run_uuid)
-                    return []
+                    raw_payload = await self._fetch_raw_payload(client, run_meta)
+                    if not raw_payload:
+                        logger.warning("TechEmpower原始数据为空, uuid=%s", run_uuid)
+                        continue
+
+                    candidates.extend(self._build_candidates(run, run_meta, raw_payload))
         except httpx.TimeoutException:
             logger.error("TechEmpower请求超时(>%ss)", self.timeout)
             return []
@@ -74,34 +79,36 @@ class TechEmpowerCollector:
             logger.error("TechEmpower采集异常: %s", exc, exc_info=True)
             return []
 
-        candidates = self._build_candidates(latest_run, run_meta, raw_payload)
         logger.info("TechEmpower采集完成,有效候选%d条", len(candidates))
         return candidates
 
-    def _parse_latest_run(self, html: str) -> Dict[str, str] | None:
-        """从首页HTML解析最新一条测试记录"""
+    def _parse_runs(self, html: str) -> List[Dict[str, str]]:
+        """从首页HTML解析最近几条测试记录"""
 
         soup = BeautifulSoup(html, "html.parser")
-        row = soup.select_one("table.resultsTable tbody tr")
-        if not row:
-            return None
+        rows = soup.select("table.resultsTable tbody tr")[: self.RUNS_LIMIT]
+        runs: List[Dict[str, str]] = []
+        for row in rows:
+            uuid_attr = row.get("data-uuid")
+            if not uuid_attr:
+                continue
+            uuid = cast(str, uuid_attr)
 
-        uuid_attr = row.get("data-uuid")
-        if not uuid_attr:
-            return None
-        uuid = cast(str, uuid_attr)
+            cells = row.find_all("td")
+            env_text = cells[0].get_text(" ", strip=True) if cells else ""
+            stats_text = cells[1].get_text(" ", strip=True) if len(cells) > 1 else ""
+            time_text = cells[2].get_text(" ", strip=True) if len(cells) > 2 else ""
 
-        cells = row.find_all("td")
-        env_text = cells[0].get_text(" ", strip=True) if cells else ""
-        stats_text = cells[1].get_text(" ", strip=True) if len(cells) > 1 else ""
-        time_text = cells[2].get_text(" ", strip=True) if len(cells) > 2 else ""
+            runs.append(
+                {
+                    "uuid": uuid,
+                    "environment": env_text,
+                    "stats": stats_text,
+                    "time": time_text,
+                }
+            )
 
-        return {
-            "uuid": uuid,
-            "environment": env_text,
-            "stats": stats_text,
-            "time": time_text,
-        }
+        return runs
 
     async def _fetch_run_metadata(
         self, client: httpx.AsyncClient, run_uuid: str

@@ -16,7 +16,6 @@ from src.common import clean_summary_text, constants
 from src.common.url_extractor import URLExtractor
 from src.config import Settings, get_settings
 from src.models import RawCandidate
-from src.extractors import ImageExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -213,11 +212,6 @@ class GitHubCollector:
         # 这是为了解决飞书表格中abstract字段被污染的问题（包含<!-- <p align="center"> <img alt=... 等HTML标签）
         cleaned_abstract = clean_summary_text(readme_text, max_length=2000) if readme_text else None
 
-        hero_image_url = await ImageExtractor.extract_github_image(
-            repo_url=repo.get("html_url", ""),
-            readme_html=readme_text,
-        )
-
         return RawCandidate(
             title=repo.get("full_name", ""),
             url=repo.get("html_url", ""),
@@ -236,7 +230,7 @@ class GitHubCollector:
                 "topic": topic,
                 "language": str(repo.get("language") or ""),
             },
-            hero_image_url=hero_image_url,
+            hero_image_url=None,
         )
 
     async def _fetch_readme(
