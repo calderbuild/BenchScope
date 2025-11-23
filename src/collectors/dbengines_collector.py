@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -111,6 +112,7 @@ class DBEnginesCollector:
             url=detail_url or f"{self.base_url}/ranking",
             source="dbengines",
             abstract=description,
+            publish_date=self._get_ranking_update_date(),
             raw_metadata=raw_metadata,
         )
 
@@ -125,3 +127,9 @@ class DBEnginesCollector:
             return f"{self.base_url}/{href}"
         base = self.base_url.rstrip("/")
         return f"{base}{href}"
+
+    def _get_ranking_update_date(self) -> datetime:
+        """DB-Engines 每月更新，使用当月1日作为发布日期"""
+
+        now = datetime.utcnow()
+        return datetime(now.year, now.month, 1)

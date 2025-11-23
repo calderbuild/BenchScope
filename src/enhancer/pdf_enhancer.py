@@ -27,7 +27,6 @@ from bs4 import XMLParsedAsHTMLWarning
 from scipdf.pdf import parse_pdf_to_dict  # type: ignore[import]
 
 from src.common import constants
-from src.extractors import ImageExtractor
 from src.models import RawCandidate
 
 # 过滤 scipdf_parser 库的 XML 解析警告
@@ -53,6 +52,9 @@ class PDFContent:
     introduction_summary: Optional[str] = None  # 引言摘要（最多 2000 字）
     method_summary: Optional[str] = None  # 方法/框架摘要（最多 3000 字）
     conclusion_summary: Optional[str] = None  # 结论/讨论摘要（最多 2000 字）
+    extracted_github_url: Optional[str] = None  # 从PDF正文提取的GitHub链接
+    extracted_dataset_url: Optional[str] = None  # 从PDF正文提取的数据集链接
+    extracted_paper_url: Optional[str] = None  # 从PDF正文提取的论文链接
 
 
 class PDFEnhancer:
@@ -113,7 +115,7 @@ class PDFEnhancer:
             if not pdf_content:
                 return candidate
 
-            enhanced = self._merge_pdf_content(candidate, pdf_content)
+            enhanced = await self._merge_pdf_content(candidate, pdf_content)
             logger.info("PDF 增强成功: %s (%s)", candidate.title[:80], arxiv_id)
             return enhanced
         except Exception as exc:  # noqa: BLE001
@@ -390,16 +392,144 @@ class PDFEnhancer:
                 return section_text[:max_len]
         return None
 
-    def _merge_pdf_content(
+    def _extract_urls_from_pdf(self, pdf_content: PDFContent) -> Dict[str, Optional[str]]:
+        """从PDF正文提取 GitHub/数据集/论文 URL。
+
+        优先级：Code/Data Availability -> Evaluation/Dataset -> Intro/Method -> Conclusion -> 其他章节。
+        """
+
+        urls: Dict[str, Optional[str]] = {
+            "github_url": None,
+            "dataset_url": None,
+            "paper_url": None,
+        }
+
+        priority_sections: List[str] = []
+
+        # 章节优先：根据标题关键词挑选
+        section_priority_keywords = [
+            "code availability",
+            "data availability",
+            "implementation",
+            "experiment",
+            "evaluation",
+            "dataset",
+        ]
+        for name, text in pdf_content.sections.items():
+            lower = name.lower()
+            if any(key in lower for key in section_priority_keywords):
+                priority_sections.append(text)
+
+        # 补充摘要/章节总结
+        priority_sections.extend(
+            filter(
+                None,
+                [
+                    pdf_content.evaluation_summary,
+                    pdf_content.dataset_summary,
+                    pdf_content.baselines_summary,
+                    pdf_content.introduction_summary,
+                    pdf_content.method_summary,
+                    pdf_content.conclusion_summary,
+                ],
+            )
+        )
+
+        # 回退：拼接全部章节
+        if not priority_sections:
+            priority_sections = list(pdf_content.sections.values())
+
+        full_text = "\n".join(priority_sections)
+        url_pattern = r"https?://[^\s<>\"{}|\\^`\[\]]+"
+        found_urls = re.findall(url_pattern, full_text)
+
+        dataset_domains = [
+            "huggingface.co/datasets",
+            "zenodo.org",
+            "kaggle.com/datasets",
+            "paperswithcode.com/dataset",
+            "drive.google.com",
+        ]
+
+        for url in found_urls:
+            url_lower = url.lower()
+
+            if not urls["github_url"] and "github.com" in url_lower:
+                normalized = self._normalize_github_url(url)
+                if normalized:
+                    urls["github_url"] = normalized
+                    continue
+
+            if not urls["dataset_url"] and any(domain in url_lower for domain in dataset_domains):
+                urls["dataset_url"] = url
+                continue
+
+            if not urls["paper_url"] and "arxiv.org/abs" in url_lower:
+                urls["paper_url"] = url
+
+        return urls
+
+    @staticmethod
+    def _normalize_github_url(url: str) -> Optional[str]:
+        """将 GitHub 链接规范化为 https://github.com/org/repo，过滤 issues/tree/blob 等无关链接。"""
+
+        match = re.search(r"github\.com/([^/]+)/([^/#?\s]+)", url)
+        if not match:
+            return None
+
+        owner, repo = match.groups()
+        if repo.lower() in {"issues", "pulls", "actions"}:
+            return None
+
+        # 去掉.git 或多余路径
+        repo = repo.replace(".git", "")
+        return f"https://github.com/{owner}/{repo}"
+
+    async def _fetch_github_metadata(self, github_url: str) -> Dict[str, Any]:
+        """从 GitHub API 获取 stars / 许可证 / 活跃度元数据，失败则返回空字典。"""
+
+        if not github_url or "github.com" not in github_url:
+            return {}
+
+        match = re.search(r"github\.com/([^/]+)/([^/\s]+)", github_url)
+        if not match:
+            return {}
+
+        owner, repo = match.groups()
+        api_url = f"https://api.github.com/repos/{owner}/{repo}"
+        headers = {"Accept": "application/vnd.github+json", "User-Agent": "BenchScope/1.0"}
+        token = os.getenv("GITHUB_TOKEN")
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+
+        try:
+            async with httpx.AsyncClient(timeout=constants.GITHUB_METADATA_TIMEOUT_SECONDS) as client:
+                response = await client.get(api_url, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("GitHub元数据获取失败(%s): %s", github_url, exc)
+            return {}
+
+        return {
+            "github_stars": data.get("stargazers_count"),
+            "license_type": (data.get("license") or {}).get("spdx_id"),
+            "github_updated_at": data.get("updated_at"),
+            "github_open_issues": data.get("open_issues_count"),
+        }
+
+    async def _merge_pdf_content(
         self,
         candidate: RawCandidate,
         pdf_content: PDFContent,
     ) -> RawCandidate:
         """将 PDF 解析结果合并回 RawCandidate。
 
-        - 若 PDF 摘要更长，则覆盖原摘要
-        - 根据作者机构信息补充 raw_institutions
-        - 将 Evaluation / Dataset / Baselines 摘要写入 raw_metadata
+        处理顺序：
+        1. 摘要与机构补全
+        2. 章节摘要写入 raw_metadata
+        3. 从全文提取 GitHub/数据集/论文 URL 并回填
+        4. 可选调用 GitHub API 补齐 stars/许可证
         """
         # 更新摘要：保留信息量更大的版本
         pdf_abstract = pdf_content.abstract or ""
@@ -429,6 +559,35 @@ class PDFEnhancer:
         metadata["conclusion_summary"] = pdf_content.conclusion_summary or ""
         metadata["pdf_sections"] = ", ".join(pdf_content.sections.keys())
         metadata["pdf_references_count"] = str(len(pdf_content.references))
+
+        # URL提取与回填
+        extracted_urls = self._extract_urls_from_pdf(pdf_content)
+        pdf_content.extracted_github_url = extracted_urls.get("github_url")
+        pdf_content.extracted_dataset_url = extracted_urls.get("dataset_url")
+        pdf_content.extracted_paper_url = extracted_urls.get("paper_url")
+
+        if extracted_urls.get("github_url") and not candidate.github_url:
+            candidate.github_url = extracted_urls["github_url"]
+            logger.info("从PDF提取GitHub URL: %s", candidate.github_url)
+
+        if extracted_urls.get("dataset_url") and not candidate.dataset_url:
+            candidate.dataset_url = extracted_urls["dataset_url"]
+            logger.info("从PDF提取数据集URL: %s", candidate.dataset_url)
+
+        if extracted_urls.get("paper_url") and not candidate.paper_url:
+            candidate.paper_url = extracted_urls["paper_url"]
+
+        # 可选：GitHub 元数据补充（stars/许可证/活跃度），失败不阻断
+        if candidate.github_url and (candidate.github_stars is None or candidate.license_type is None):
+            github_meta = await self._fetch_github_metadata(candidate.github_url)
+            if github_meta:
+                candidate.github_stars = candidate.github_stars or github_meta.get("github_stars")
+                candidate.license_type = candidate.license_type or github_meta.get("license_type")
+                if github_meta.get("github_updated_at"):
+                    metadata["github_updated_at"] = github_meta["github_updated_at"]
+                if github_meta.get("github_open_issues") is not None:
+                    metadata["github_open_issues"] = str(github_meta["github_open_issues"])
+
         candidate.raw_metadata = metadata
 
         return candidate
@@ -436,17 +595,8 @@ class PDFEnhancer:
     async def _generate_arxiv_cover(
         self, arxiv_id: str, pdf_path: Path, candidate: RawCandidate
     ) -> None:
-        """生成arXiv首页预览图并写入hero_image_key"""
-
-        if candidate.hero_image_key:
-            return
-
-        image_key = await ImageExtractor.extract_arxiv_image(
-            str(pdf_path),
-            arxiv_id,
-        )
-        if image_key:
-            candidate.hero_image_key = image_key
+        """封面生成功能已移除，空实现避免额外耗时。"""
+        return
 
     @staticmethod
     def _extract_arxiv_id(url: str) -> Optional[str]:

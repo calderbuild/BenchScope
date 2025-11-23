@@ -163,6 +163,8 @@ GITHUB_README_EXCLUDED_KEYWORDS: Final[list[str]] = [
     "学习指南",
 ]
 GITHUB_LOOKBACK_DAYS: Final[int] = 30  # 30天窗口，新Benchmark创建频率低
+GITHUB_METADATA_TIMEOUT_SECONDS: Final[float] = 5.0
+GITHUB_METADATA_MAX_RETRIES: Final[int] = 1
 
 # Semantic Scholar配置
 SEMANTIC_SCHOLAR_LOOKBACK_YEARS: Final[int] = 2
@@ -426,11 +428,11 @@ LLM_TIMEOUT_SECONDS: Final[int] = 30
 LLM_CACHE_TTL_SECONDS: Final[int] = 7 * 24 * 3600
 LLM_MAX_RETRIES: Final[int] = 3
 LLM_COMPLETION_MAX_TOKENS: Final[int] = 2000  # 提高max_tokens确保评分依据完整详细
-LLM_REASONING_MIN_CHARS: Final[int] = 150  # 五维推理字段的最小字符数
-LLM_BACKEND_REASONING_MIN_CHARS: Final[int] = 200  # 后端专项推理的最小字符数
-LLM_OVERALL_REASONING_MIN_CHARS: Final[int] = 200  # overall_reasoning的最小字符数（人性化强化）
-LLM_TOTAL_REASONING_MIN_CHARS: Final[int] = 1000  # 总推理最少字数（从1200降至1000，避免短PDF频繁触发纠偏）
-LLM_SELF_HEAL_MAX_ATTEMPTS: Final[int] = 2  # LLM输出字符不足时的自动纠偏重试次数
+LLM_REASONING_MIN_CHARS: Final[int] = 100  # 放宽至100字符，减少频繁纠偏
+LLM_BACKEND_REASONING_MIN_CHARS: Final[int] = 150  # 后端专项推理最小字符数
+LLM_OVERALL_REASONING_MIN_CHARS: Final[int] = 150  # overall_reasoning最小字符数
+LLM_TOTAL_REASONING_MIN_CHARS: Final[int] = 800  # 总推理最少字数，降低容错
+LLM_SELF_HEAL_MAX_ATTEMPTS: Final[int] = 3  # 允许最多3次纠偏，降低失败率
 SCORE_CONCURRENCY: Final[int] = 50  # GPT-4o速率限制高，充分利用并发能力
 REDIS_DEFAULT_URL: Final[str] = "redis://localhost:6379/0"
 REDIS_TTL_DAYS: Final[int] = 7
@@ -492,6 +494,7 @@ IMAGE_SUPPORTED_FORMATS: Final[list[str]] = ["JPEG", "PNG", "GIF", "BMP"]
 TITLE_TRUNCATE_SHORT: Final[int] = 50  # 日志显示
 TITLE_TRUNCATE_MEDIUM: Final[int] = 60  # 摘要卡片
 TITLE_TRUNCATE_LONG: Final[int] = 150  # 详细卡片
+TITLE_TRUNCATE_CARD: Final[int] = 10_000  # 推送卡片标题不过滤，保留全量展示
 
 # 质量评级阈值
 QUALITY_EXCELLENT_THRESHOLD: Final[float] = 8.0
@@ -558,10 +561,71 @@ FEISHU_LOW_PICK_PER_SOURCE: Final[dict[str, int]] = {
     "huggingface": 1,
     "helm": 1,
 }
+# 推送过滤与质量控制
+PUSH_MAX_AGE_DAYS: Final[int] = 30  # 超过30天仅保留高分(>=8)的历史优质项
+PUSH_RELEVANCE_FLOOR: Final[float] = 5.5  # 任务相关性下限，低于则不推
+PUSH_TOTAL_CAP: Final[int] = 15  # 单次推送总条数上限
+
+# 推送卡片UX（方案B：两分区）
+CORE_DOMAINS: Final[list[str]] = [
+    "Coding",
+    "Backend",
+    "WebDev",
+    "GUI",
+    "ToolUse",
+    "Collaboration",
+    "LLM/AgentOps",
+    "Reasoning",
+    "DeepResearch",
+    "Other",
+]
+MAIN_RECOMMENDATION_LIMIT: Final[int] = 12  # 最新推荐区最多条目
+TASK_FILL_MIN_SCORE: Final[float] = 5.0  # 补位候选最低分（若无则放宽由调用方控制）
+TASK_FILL_PER_DOMAIN_LIMIT: Final[int] = 1
+TASK_FILL_SHOW_MISSING: Final[bool] = True
 # 论文来源评分折扣（后处理，用于平衡活跃度/复现性偏低）
-PAPER_ACTIVITY_DISCOUNT: Final[float] = 0.6
-PAPER_REPRODUCIBILITY_DISCOUNT: Final[float] = 0.7
+PAPER_ACTIVITY_DISCOUNT: Final[float] = 1.0  # 关闭论文活跃度折扣，防止非GitHub源被压分
+PAPER_REPRODUCIBILITY_DISCOUNT: Final[float] = 1.0  # 关闭论文复现性折扣
 PAPER_MGX_BONUS: Final[float] = 0.1  # MGX适配度加权
 PAPER_MIN_SCORE_FOR_LOW_PICK: Final[float] = 5.5  # 放宽门槛，避免全被过滤
 PAPER_MIN_RELEVANCE_FOR_LOW_PICK: Final[float] = 5.5
 PAPER_MAX_PUBLISH_DAYS_FOR_LOW_PICK: Final[int] = 10  # 放宽到10天，保留更多最新论文
+
+# ============================================================
+# 智能推送策略配置（任务领域与新鲜度优先）
+# ============================================================
+SOURCE_SCORE_THRESHOLDS: Final[dict[str, float]] = {
+    "arxiv": 2.5,
+    "helm": 3.0,
+    "huggingface": 3.0,
+    "dbengines": 3.0,
+    "techempower": 3.0,
+    "github": 6.0,
+    "default": MIN_TOTAL_SCORE,
+}
+
+# arXiv 需兼顾任务相关性，避免无关低分噪声
+ARXIV_MIN_RELEVANCE: Final[float] = 6.0
+
+# 时间新鲜度加权（以发布日期为基准）
+FRESHNESS_BOOST_7D: Final[float] = 1.5
+FRESHNESS_BOOST_14D: Final[float] = 0.8
+FRESHNESS_BOOST_30D: Final[float] = 0.3
+
+# 各来源保底推送 TopK，优先最新、其次高分
+PER_SOURCE_TOPK_PUSH: Final[dict[str, int]] = {
+    "arxiv": 3,
+    "github": 3,
+    "helm": 2,
+    "huggingface": 2,
+    "dbengines": 1,
+    "techempower": 1,
+}
+
+# 低优池按任务类型补位配置
+LOW_PICK_BY_TASK_ENABLED: Final[bool] = True
+LOW_PICK_TASK_TOPK: Final[int] = 2
+LOW_PICK_SCORE_FLOOR: Final[float] = 5.0
+
+# 智能推送开关
+ENABLE_SMART_PUSH_STRATEGY: Final[bool] = True

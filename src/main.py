@@ -8,7 +8,7 @@ import os
 import subprocess
 import time
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, List
 
@@ -26,11 +26,11 @@ from src.collectors import (
 from src.common import constants
 from src.config import Settings, get_settings
 from src.enhancer import PDFEnhancer
-from src.models import RawCandidate
+from src.models import RawCandidate, ScoredCandidate
 from src.notifier import FeishuNotifier
 from src.prefilter import prefilter_batch
 from src.scorer import LLMScorer
-from src.storage import FeishuImageUploader, StorageManager
+from src.storage import StorageManager
 
 logger = logging.getLogger(__name__)
 
@@ -270,30 +270,16 @@ async def main() -> None:
         scored = await scorer.score_batch(enhanced_candidates)
     logger.info("评分完成: %d条\n", len(scored))
 
-    # Step 5: 图片上传到飞书
-    logger.info("[5/7] 图片上传到飞书...")
-    uploader = FeishuImageUploader(settings)
-    upload_targets = [
-        c
-        for c in scored
-        if c.hero_image_url
-        and not c.hero_image_key
-        and c.hero_image_url.startswith(("http://", "https://"))
-    ]
-    success_count = 0
-    for candidate in upload_targets:
-        try:
-            if candidate.hero_image_url is None:
-                # 理论不应出现，双重保护避免类型告警
-                continue
-            candidate.hero_image_key = await uploader.upload_image(
-                candidate.hero_image_url
-            )
-            if candidate.hero_image_key:
-                success_count += 1
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("图片上传失败: %s | %s", candidate.title[:50], exc)
-    logger.info("图片上传完成: %d/%d 成功\n", success_count, len(upload_targets))
+    # Step 4.5: 论文/权威源兜底打分（最新且相关不因无GitHub被重罚）
+    logger.info("[4.5/7] 权威源分数兜底...")
+    scored = [_apply_recency_domain_floor(c) for c in scored]
+
+    # Step 4.6: 时间新鲜度加权（最新优先，兼顾任务相关性）
+    logger.info("[4.6/7] 新鲜度加权...")
+    scored = [_apply_freshness_boost(c) for c in scored]
+
+    # Step 5: 图片上传已禁用以节省时间
+    logger.info("[5/7] 图片上传已跳过，减少耗时")
 
     # Step 6: 存储入库
     logger.info("[6/7] 存储入库...")
@@ -334,6 +320,118 @@ def _configure_logging(settings: Settings) -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         handlers=handlers,
     )
+
+
+def _apply_freshness_boost(candidate: ScoredCandidate) -> ScoredCandidate:
+    """对近期发布的候选加权，突出最新、任务相关内容。
+
+    - 7天内: +1.5
+    - 14天内: +0.8
+    - 30天内: +0.3
+    加权后封顶10分，避免分数膨胀。
+    """
+
+    if not candidate.publish_date:
+        return candidate
+
+    publish_dt = candidate.publish_date
+    if publish_dt.tzinfo is None:
+        publish_dt = publish_dt.replace(tzinfo=timezone.utc)
+
+    now = datetime.now(tz=publish_dt.tzinfo)
+    days = (now - publish_dt).days
+
+    boost = 0.0
+    if days <= 7:
+        boost = constants.FRESHNESS_BOOST_7D
+    elif days <= 14:
+        boost = constants.FRESHNESS_BOOST_14D
+    elif days <= 30:
+        boost = constants.FRESHNESS_BOOST_30D
+
+    if boost <= 0:
+        return candidate
+
+    boosted_total = min(10.0, candidate.total_score + boost)
+    candidate.custom_total_score = boosted_total
+
+    logger.debug(
+        "新鲜度加权: %s | %dd | +%.1f -> %.1f",
+        candidate.title[: constants.TITLE_TRUNCATE_SHORT],
+        days,
+        boost,
+        boosted_total,
+    )
+    return candidate
+
+
+def _apply_recency_domain_floor(candidate: ScoredCandidate) -> ScoredCandidate:
+    """对近期且任务相关的权威来源设置评分下限，避免因缺少GitHub被过度扣分。
+
+    条件：
+    - 来源属于权威/论文类（arxiv/helm/techempower/dbengines/huggingface/semantic_scholar）
+    - MGX相关性 >= 6.0（确保任务领域相关）
+    - 发布距今 <= 30 天
+    下限：活跃度>=4.0，可复现性>=4.5，许可>=3.0
+    """
+
+    authority_sources = {
+        "arxiv",
+        "helm",
+        "techempower",
+        "dbengines",
+        "huggingface",
+        "semantic_scholar",
+    }
+
+    source = (candidate.source or "").lower()
+    if source not in authority_sources:
+        return candidate
+
+    if candidate.relevance_score < 6.0:
+        return candidate
+
+    publish_dt = candidate.publish_date
+    if publish_dt is None:
+        return candidate
+    if publish_dt.tzinfo is None:
+        publish_dt = publish_dt.replace(tzinfo=timezone.utc)
+    age_days = (datetime.now(tz=publish_dt.tzinfo) - publish_dt).days
+    # 放宽到90天，避免新榜单/论文被过早压分
+    if age_days > 90:
+        return candidate
+
+    # 下限保护（HuggingFace 更高，其他权威源使用基线）
+    if source == "huggingface":
+        candidate.activity_score = max(candidate.activity_score, 5.5)
+        candidate.reproducibility_score = max(candidate.reproducibility_score, 5.5)
+        candidate.license_score = max(candidate.license_score, 4.5)
+    else:
+        candidate.activity_score = max(candidate.activity_score, 4.5)
+        candidate.reproducibility_score = max(candidate.reproducibility_score, 5.0)
+        candidate.license_score = max(candidate.license_score, 3.5)
+
+    # 若已有新鲜度加权(custom_total_score)未设或偏低，则用下限重算
+    weights = constants.SCORE_WEIGHTS
+    base_total = (
+        candidate.activity_score * weights["activity"]
+        + candidate.reproducibility_score * weights["reproducibility"]
+        + candidate.license_score * weights["license"]
+        + candidate.novelty_score * weights["novelty"]
+        + candidate.relevance_score * weights["relevance"]
+    )
+    if candidate.custom_total_score is None:
+        candidate.custom_total_score = base_total
+    else:
+        candidate.custom_total_score = max(candidate.custom_total_score, base_total)
+
+    logger.debug(
+        "权威源下限保护: %s | %dd | total>=%.2f",
+        candidate.title[: constants.TITLE_TRUNCATE_SHORT],
+        age_days,
+        candidate.custom_total_score,
+    )
+    return candidate
 
 
 if __name__ == "__main__":

@@ -52,9 +52,6 @@ class FeishuStorage:
         "github_stars": "GitHub Stars",
         "github_url": "GitHub URL",
         "license_type": "许可证",  # 修复: "License类型" → "许可证"
-        # Phase 9 图片字段
-        "hero_image_url": "图片URL",
-        "hero_image_key": "图片Key",
     }
 
     def __init__(self, settings: Optional[Settings] = None) -> None:
@@ -66,6 +63,8 @@ class FeishuStorage:
         self.token_expire_at: Optional[datetime] = None
         self._field_names: Optional[set[str]] = None
         self._missing_fields_logged: bool = False
+        # 降低 httpx 日志等级，避免批量拉取时刷屏
+        logging.getLogger("httpx").setLevel(logging.WARNING)
 
     async def _request_with_retry(
         self,
@@ -93,7 +92,7 @@ class FeishuStorage:
                 )
             except (httpx.RequestError, httpx.TimeoutException) as exc:
                 last_error = exc
-                logger.warning(
+                logger.debug(
                     "飞书请求失败(%s %s)第%d次: %s",
                     method,
                     url,
@@ -415,13 +414,16 @@ class FeishuStorage:
 
         existing_urls: set[str] = set()
         page_token = None
+        max_pages = 20  # 避免异常has_more导致死循环
+        page_count = 0
+        seen_tokens: set[str] = set()
 
         async with httpx.AsyncClient(timeout=10) as client:
             while True:
                 url = f"{self.base_url}/bitable/v1/apps/{self.settings.feishu.bitable_app_token}/tables/{self.settings.feishu.bitable_table_id}/records/search"
 
                 # 分页查询所有记录
-                payload = {"page_size": 500}
+                payload = {"page_size": 1000}
                 if page_token:
                     payload["page_token"] = page_token
 
@@ -464,6 +466,21 @@ class FeishuStorage:
                 if not page_token:
                     break
 
+                # 防御：重复token或超页直接退出，避免刷屏阻塞
+                if page_token in seen_tokens:
+                    logger.warning("飞书去重分页检测到重复page_token，提前终止以防死循环")
+                    break
+                seen_tokens.add(page_token)
+
+                page_count += 1
+                if page_count >= max_pages:
+                    logger.warning(
+                        "飞书去重分页超过上限%d，终止以防卡死，已收集URL:%d",
+                        max_pages,
+                        len(existing_urls),
+                    )
+                    break
+
         logger.info("飞书已存在URL数量: %d", len(existing_urls))
         return existing_urls
 
@@ -476,12 +493,14 @@ class FeishuStorage:
         page_token: Optional[str] = None
         url_field = self.FIELD_MAPPING["url"]
         publish_field = self.FIELD_MAPPING["publish_date"]
+        max_pages = 20  # 防止无限分页刷请求
+        page_count = 0
 
         async with httpx.AsyncClient(timeout=10) as client:
             while True:
                 url = f"{self.base_url}/bitable/v1/apps/{self.settings.feishu.bitable_app_token}/tables/{self.settings.feishu.bitable_table_id}/records/search"
 
-                payload: Dict[str, Any] = {"page_size": 500}
+                payload: Dict[str, Any] = {"page_size": 1000}
                 if page_token:
                     payload["page_token"] = page_token
 
@@ -545,5 +564,105 @@ class FeishuStorage:
                 if not page_token:
                     break
 
+                page_count += 1
+                if page_count >= max_pages:
+                    logger.warning("读取飞书记录超出分页上限%d，提前停止以防刷屏", max_pages)
+                    break
+
         logger.info("飞书历史记录读取完成: %d条", len(records))
         return records
+
+    async def read_brief_records(self, fields: Optional[list[str]] = None) -> List[dict[str, Any]]:
+        """读取多维表格指定字段，默认返回标题/来源/任务域/总分/发布日期。
+
+        仅用于分析，不影响主流程。包含分页上限保护防止请求过多。
+        """
+
+        await self._ensure_access_token()
+
+        target_fields = fields or [
+            "title",
+            "source",
+            "task_domain",
+            "total_score",
+            "publish_date",
+        ]
+
+        field_map = {f: self.FIELD_MAPPING.get(f, f) for f in target_fields}
+
+        page_token: Optional[str] = None
+        max_pages = 20
+        page_count = 0
+        seen_tokens: set[str] = set()
+
+        records: List[dict[str, Any]] = []
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            while True:
+                url = f"{self.base_url}/bitable/v1/apps/{self.settings.feishu.bitable_app_token}/tables/{self.settings.feishu.bitable_table_id}/records/search"
+
+                payload: Dict[str, Any] = {"page_size": 1000}
+                if page_token:
+                    payload["page_token"] = page_token
+
+                resp = await self._request_with_retry(
+                    client,
+                    "POST",
+                    url,
+                    headers=self._auth_header(),
+                    json=payload,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+
+                if data.get("code") != 0:
+                    raise FeishuAPIError(f"飞书查询失败: {data}")
+
+                items = data.get("data", {}).get("items", [])
+
+                for item in items:
+                    fields_data = item.get("fields", {})
+                    record: dict[str, Any] = {}
+                    for key, feishu_field in field_map.items():
+                        value = fields_data.get(feishu_field)
+                        if key == "publish_date":
+                            record[key] = self._parse_publish_date(value)
+                        else:
+                            # URL字段可能是对象，标题等为字符串
+                            if isinstance(value, dict):
+                                record[key] = value.get("link") or value.get("text") or value
+                            else:
+                                record[key] = value
+                    records.append(record)
+
+                has_more = data.get("data", {}).get("has_more", False)
+                if not has_more:
+                    break
+
+                page_token = data.get("data", {}).get("page_token")
+                if not page_token or page_token in seen_tokens:
+                    break
+                seen_tokens.add(page_token)
+
+                page_count += 1
+                if page_count >= max_pages:
+                    logger.warning("read_brief_records 超过分页上限%d，提前结束，已获取%d条", max_pages, len(records))
+                    break
+
+        logger.info("飞书brief记录读取完成: %d条", len(records))
+        return records
+
+    @staticmethod
+    def _parse_publish_date(value: Any) -> Optional[datetime]:
+        """解析飞书时间字段，兼容时间戳/ISO字符串。"""
+
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return datetime.fromtimestamp(value / 1000)
+        if isinstance(value, str) and value:
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            except ValueError:
+                return None
+        return None
