@@ -422,7 +422,7 @@ PREFILTER_EXCLUDED_KEYWORDS: Final[list[str]] = [
 ]
 
 # ---- Scorer 配置 ----
-LLM_DEFAULT_MODEL: Final[str] = "gpt-4o"  # 评分质量优先,月成本<$1完全在预算内
+LLM_DEFAULT_MODEL: Final[str] = "gpt-4o-mini"  # 成本优化: $8/天→$0.5/天 (-94%), 评分质量足够用于预筛选
 LLM_MODEL: Final[str] = LLM_DEFAULT_MODEL
 LLM_TIMEOUT_SECONDS: Final[int] = 30
 LLM_CACHE_TTL_SECONDS: Final[int] = 7 * 24 * 3600
