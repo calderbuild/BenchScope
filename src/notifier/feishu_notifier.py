@@ -14,6 +14,7 @@ from typing import List, Optional
 import httpx
 
 from src.common import constants
+from src.common.url_utils import canonicalize_url
 from src.config import Settings, get_settings
 from src.models import ScoredCandidate
 
@@ -159,7 +160,8 @@ class FeishuNotifier:
     def _canonical_url(candidate: ScoredCandidate) -> str:
         """统一候选的唯一键，优先使用URL。"""
 
-        return candidate.url or candidate.github_url or ""
+        primary = candidate.url or candidate.github_url or ""
+        return canonicalize_url(primary) or primary
 
     @staticmethod
     def _age_days(candidate: ScoredCandidate) -> int:

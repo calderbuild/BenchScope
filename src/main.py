@@ -24,6 +24,7 @@ from src.collectors import (
     TwitterCollector,
 )
 from src.common import constants
+from src.common.url_utils import canonicalize_url
 from src.config import Settings, get_settings
 from src.enhancer import PDFEnhancer
 from src.models import RawCandidate, ScoredCandidate
@@ -176,8 +177,9 @@ async def main() -> None:
     seen_urls_this_batch: set[str] = set()
     internal_deduplicated: List[RawCandidate] = []
     for candidate in all_candidates:
-        if candidate.url not in seen_urls_this_batch:
-            seen_urls_this_batch.add(candidate.url)
+        url_key = canonicalize_url(candidate.url)
+        if url_key and url_key not in seen_urls_this_batch:
+            seen_urls_this_batch.add(url_key)
             internal_deduplicated.append(candidate)
 
     internal_dup_count = len(all_candidates) - len(internal_deduplicated)
@@ -194,13 +196,14 @@ async def main() -> None:
         publish_date = record.get("publish_date")
         url_value = record.get("url")
         source_value = record.get("source", "default")
-        if not isinstance(publish_date, datetime) or not url_value:
+        url_key = canonicalize_url(url_value)
+        if not isinstance(publish_date, datetime) or not url_key:
             continue
         window_days = constants.DEDUP_LOOKBACK_DAYS_BY_SOURCE.get(
             source_value, constants.DEDUP_LOOKBACK_DAYS_BY_SOURCE["default"]
         )
         if publish_date >= now - timedelta(days=window_days):
-            recent_urls_by_source.setdefault(source_value, set()).add(url_value)
+            recent_urls_by_source.setdefault(source_value, set()).add(url_key)
 
     deduplicated: List[RawCandidate] = []
     duplicate_count = 0
@@ -209,7 +212,8 @@ async def main() -> None:
             c.source, constants.DEDUP_LOOKBACK_DAYS_BY_SOURCE["default"]
         )
         recent_urls = recent_urls_by_source.get(c.source, set())
-        if c.url in recent_urls:
+        url_key = canonicalize_url(c.url)
+        if url_key and url_key in recent_urls:
             duplicate_count += 1
             continue
         deduplicated.append(c)
