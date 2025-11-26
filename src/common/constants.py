@@ -161,6 +161,11 @@ GITHUB_README_EXCLUDED_KEYWORDS: Final[list[str]] = [
     "教程",
     "课程",
     "学习指南",
+    "model context protocol",
+    "model-context-protocol",
+    "mcp server",
+    "mcp tool",
+    "mcp client",
 ]
 GITHUB_LOOKBACK_DAYS: Final[int] = 30  # 30天窗口，新Benchmark创建频率低
 GITHUB_METADATA_TIMEOUT_SECONDS: Final[float] = 5.0
@@ -419,6 +424,69 @@ PREFILTER_EXCLUDED_KEYWORDS: Final[list[str]] = [
     # 工具包装
     "sdk wrapper",
     "api wrapper library",
+    # MCP/工具协议类项目
+    "model context protocol",
+    "model-context-protocol",
+    "mcp server",
+    "mcp tool",
+    "mcp client",
+    "mcp extension",
+    "cursor mcp",
+]
+
+# 额外的工具/协议判定关键词（用于GitHub/协议类仓库识别）
+TOOL_LIKE_KEYWORDS: Final[list[str]] = [
+    "sdk",
+    "framework",
+    "toolkit",
+    "protocol",
+    "api server",
+    "cli tool",
+    "plugin",
+    "extension",
+    "middleware",
+    "os",
+    "operating system",
+    "service",
+    "platform",
+    "agent framework",
+    "model context protocol",
+    "mcp",
+]
+
+# 判定“真 Benchmark / Benchmark 方法论”的正向特征
+BENCHMARK_DATASET_KEYWORDS: Final[list[str]] = [
+    "benchmark",
+    "benchmarking",
+    "evaluation benchmark",
+    "test set",
+    "testset",
+    "dataset",
+    "data set",
+    "leaderboard",
+    "challenge",
+    "competition",
+    "suite",
+    "corpus",
+    "benchmark dataset",
+]
+
+# 判定“算法/系统方法论”的常见短语（若缺少数据集/benchmark特征则视为算法论文）
+ALGO_METHOD_PHRASES: Final[list[str]] = [
+    "we propose a",
+    "we propose an",
+    "we introduce a",
+    "we present a",
+    "we design a",
+    "a novel approach",
+    "a new approach",
+    "a novel framework",
+    "a new framework",
+    "a novel method",
+    "a new method",
+    "our method",
+    "our framework",
+    "our approach",
 ]
 
 # ---- Scorer 配置 ----
@@ -478,6 +546,15 @@ FEISHU_SOURCE_NAME_MAP: Final[dict[str, str]] = {
     "dbengines": "DB-Engines",
     "twitter": "Twitter",
 }
+FEISHU_REQUIRED_FIELDS: Final[list[str]] = [
+    "标题",
+    "URL",
+    "来源",
+    "摘要",
+    "总分",
+    "优先级",
+    "发布日期",
+]
 
 # ---- 图片处理配置 ----
 IMAGE_MIN_SIZE_BYTES: Final[int] = 30 * 1024  # 30KB下限（GitHub og:image约40KB）

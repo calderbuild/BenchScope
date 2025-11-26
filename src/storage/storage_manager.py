@@ -7,7 +7,7 @@ from typing import List, Optional
 
 from src.common import constants
 from src.models import ScoredCandidate
-from src.storage.feishu_storage import FeishuStorage
+from src.storage.feishu_storage import FeishuAPIError, FeishuStorage
 from src.storage.sqlite_fallback import SQLiteFallback
 
 logger = logging.getLogger(__name__)
@@ -33,6 +33,21 @@ class StorageManager:
         try:
             await self.feishu.save(candidates)
             logger.info("✅ 飞书存储成功: %d条", len(candidates))
+        except FeishuAPIError as exc:
+            # access_token偶发缺失时自动刷新并重试一次，降低降级概率
+            if "access_token不存在" in str(exc):
+                logger.warning("⚠️  飞书token缺失，尝试自动刷新后重试一次")
+                await self.feishu._ensure_access_token()
+                try:
+                    await self.feishu.save(candidates)
+                    logger.info("✅ 飞书存储重试成功: %d条", len(candidates))
+                    return
+                except Exception as retry_exc:  # noqa: BLE001
+                    logger.warning("⚠️  飞书重试仍失败，将降级到SQLite: %s", retry_exc)
+            else:
+                logger.warning("⚠️  飞书存储失败,降级到SQLite: %s", exc)
+            await self.sqlite.save(candidates)
+            logger.info("✅ SQLite备份成功: %d条", len(candidates))
         except Exception as exc:  # noqa: BLE001
             logger.warning("⚠️  飞书存储失败,降级到SQLite: %s", exc)
             await self.sqlite.save(candidates)
@@ -51,6 +66,19 @@ class StorageManager:
             await self.feishu.save(pending)
             await self.sqlite.mark_synced([item.url for item in pending])
             logger.info("✅ 同步完成: %d条", len(pending))
+        except FeishuAPIError as exc:
+            if "access_token不存在" in str(exc):
+                logger.warning("⚠️  同步时token缺失，自动刷新并重试一次")
+                await self.feishu._ensure_access_token()
+                try:
+                    await self.feishu.save(pending)
+                    await self.sqlite.mark_synced([item.url for item in pending])
+                    logger.info("✅ 同步重试完成: %d条", len(pending))
+                    return
+                except Exception as retry_exc:  # noqa: BLE001
+                    logger.error("❌ 同步重试失败，仍保留SQLite记录: %s", retry_exc)
+                    return
+            logger.error("❌ 同步失败: %s", exc)
         except Exception as exc:  # noqa: BLE001
             logger.error("❌ 同步失败: %s", exc)
 

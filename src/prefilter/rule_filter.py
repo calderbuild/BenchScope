@@ -16,6 +16,44 @@ logger = logging.getLogger(__name__)
 TRUSTED_SOURCES: set[str] = {"arxiv", "techempower", "dbengines", "helm"}
 
 
+def _contains_any(text: str, keywords: list[str]) -> bool:
+    """检查文本是否包含任意关键词"""
+
+    lowered = text.lower()
+    return any(kw in lowered for kw in keywords)
+
+
+def _looks_like_tool_repo(candidate: RawCandidate) -> bool:
+    """基于标题与摘要快速判断是否是工具/框架/协议而非Benchmark。
+
+    规则（满足以下任意且缺少benchmark特征则视为工具）：
+    - 命中工具类关键词（SDK/protocol/framework等）
+    - 摘要/README中未出现Benchmark/数据集正向关键词
+    """
+
+    text = f"{candidate.title} {(candidate.abstract or '')}".lower()
+
+    if not _contains_any(text, constants.TOOL_LIKE_KEYWORDS):
+        return False
+
+    has_benchmark_signal = _contains_any(text, constants.BENCHMARK_DATASET_KEYWORDS)
+    return not has_benchmark_signal
+
+
+def _looks_like_algo_paper(candidate: RawCandidate) -> bool:
+    """针对arXiv等论文源，识别算法/系统方法论（非Benchmark）。
+
+    规则：文本命中算法方法短语，且不包含Benchmark/数据集正向关键词。
+    保留“Benchmark方法论”——因为它会包含benchmark/dataset等正向信号。
+    """
+
+    text = f"{candidate.title} {(candidate.abstract or '')}".lower()
+
+    has_algo_phrase = _contains_any(text, constants.ALGO_METHOD_PHRASES)
+    has_benchmark_signal = _contains_any(text, constants.BENCHMARK_DATASET_KEYWORDS)
+    return has_algo_phrase and not has_benchmark_signal
+
+
 def prefilter(candidate: RawCandidate) -> bool:
     """Phase 3 基线预筛选规则（Phase 2优化版）
 
@@ -125,6 +163,16 @@ def _prefilter_with_reason(candidate: RawCandidate) -> tuple[bool, str]:
 
     if candidate.source == "github" and not _is_quality_github_repo(candidate):
         return False, "github_quality"
+
+    # 工具/协议类仓库过滤（避免MCP/SDK误判为Benchmark）
+    if candidate.source == "github" and _looks_like_tool_repo(candidate):
+        logger.debug("过滤: 疑似工具/协议仓库 - %s", candidate.title)
+        return False, "tool_repo"
+
+    # arXiv等论文源：过滤算法/系统方法论文，保留Benchmark/Benchmark方法论
+    if candidate.source == "arxiv" and _looks_like_algo_paper(candidate):
+        logger.debug("过滤: 算法/系统方法论文 - %s", candidate.title)
+        return False, "algo_paper"
 
     logger.debug(
         "✅ 通过预筛选: %s (source=%s, stars=%s)",

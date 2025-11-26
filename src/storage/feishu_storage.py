@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 import httpx
 
 from src.common import clean_summary_text, constants
+from src.common.url_utils import canonicalize_url
 from src.config import Settings, get_settings
 from src.models import ScoredCandidate
 
@@ -113,14 +114,46 @@ class FeishuStorage:
             return
 
         await self._ensure_access_token()
+        existing_urls = await self.get_existing_urls()
+
+        # 写入前按URL做二次去重，防止飞书表已有记录导致重复条目
+        deduped_candidates: list[ScoredCandidate] = []
+        skipped = 0
+        for cand in candidates:
+            url_key = canonicalize_url(cand.url)
+            if url_key and url_key in existing_urls:
+                skipped += 1
+                continue
+            deduped_candidates.append(cand)
+
+        if skipped:
+            logger.info("飞书写入前去重: 跳过%d条已存在URL", skipped)
+
+        if not deduped_candidates:
+            logger.info("飞书去重后无新增记录，跳过写入")
+            return
 
         async with httpx.AsyncClient(timeout=10) as client:
-            for start in range(0, len(candidates), self.batch_size):
-                chunk = candidates[start : start + self.batch_size]
+            for start in range(0, len(deduped_candidates), self.batch_size):
+                chunk = deduped_candidates[start : start + self.batch_size]
                 records = [self._to_feishu_record(c) for c in chunk]
-                await self._batch_create_records(client, records)
+                try:
+                    await self._batch_create_records(client, records)
+                except FeishuAPIError as exc:
+                    if "access_token不存在" in str(exc):
+                        logger.warning("飞书写入token失效，自动刷新后重试当前批次")
+                        await self._ensure_access_token()
+                        await self._batch_create_records(client, records)
+                    else:
+                        raise
 
-                if start + self.batch_size < len(candidates):
+                # 将当前批次加入缓存，避免同一次运行内的重复
+                for cand in chunk:
+                    url_key = canonicalize_url(cand.url)
+                    if url_key:
+                        existing_urls.add(url_key)
+
+                if start + self.batch_size < len(deduped_candidates):
                     await asyncio.sleep(self.rate_interval)
 
     async def _batch_create_records(
@@ -139,12 +172,10 @@ class FeishuStorage:
             ]
 
             # 如果全部字段都被过滤掉，直接跳过，避免提交空记录
-            filtered_records = [
-                record for record in filtered_records if record["fields"]
-            ]
+            filtered_records = [record for record in filtered_records if record["fields"]]
             if not filtered_records:
-                logger.warning("全部字段均缺失于飞书表，跳过本批次写入")
-                return
+                logger.error("飞书表字段缺失，导致本批次无可写字段，已终止写入")
+                raise FeishuAPIError("飞书表字段缺失，导致写入记录为空")
 
             resp = await self._request_with_retry(
                 client,
@@ -210,7 +241,10 @@ class FeishuStorage:
             )
             resp.raise_for_status()
             data = resp.json()
-            self.access_token = data.get("tenant_access_token")
+            token = data.get("tenant_access_token")
+            if not token:
+                raise FeishuAPIError("飞书token获取失败，返回空token")
+            self.access_token = token
             expire_seconds = int(data.get("expire", 7200)) - 300
             self.token_expire_at = now + timedelta(seconds=max(expire_seconds, 600))
             logger.info("飞书access_token刷新成功")
@@ -239,6 +273,9 @@ class FeishuStorage:
     async def _ensure_field_cache(self, client: httpx.AsyncClient) -> None:
         if self._field_names is not None:
             return
+
+        # 防御性校验：使用前再确保token存在，避免并发/实例重建导致的空token
+        await self._ensure_access_token()
 
         url = (
             f"{self.base_url}/bitable/v1/apps/{self.settings.feishu.bitable_app_token}/"
@@ -293,6 +330,23 @@ class FeishuStorage:
             )
 
         self._field_names = field_names
+        self._validate_required_fields()
+
+    def _validate_required_fields(self) -> None:
+        """确保飞书表包含核心字段，缺失时立即失败并降级到SQLite。"""
+
+        if not self._field_names:
+            return
+
+        missing = {
+            name for name in constants.FEISHU_REQUIRED_FIELDS if name not in self._field_names
+        }
+        if missing:
+            logger.error(
+                "飞书表缺少必需字段: %s，已阻断写入以避免数据丢失",
+                ", ".join(sorted(missing)),
+            )
+            raise FeishuAPIError("飞书表缺少必需字段，请检查表结构")
 
     @staticmethod
     def _clean_abstract(text: str | None, max_length: int | None = None) -> str:
@@ -419,6 +473,7 @@ class FeishuStorage:
         seen_tokens: set[str] = set()
 
         async with httpx.AsyncClient(timeout=10) as client:
+            await self._ensure_field_cache(client)
             while True:
                 url = f"{self.base_url}/bitable/v1/apps/{self.settings.feishu.bitable_app_token}/tables/{self.settings.feishu.bitable_table_id}/records/search"
 
@@ -451,11 +506,14 @@ class FeishuStorage:
                     # 飞书URL字段是对象格式: {"link": "url", "text": "display text"}
                     if isinstance(url_obj, dict):
                         url_value = url_obj.get("link")
-                        if url_value:
-                            existing_urls.add(url_value)
+                        url_key = canonicalize_url(url_value)
+                        if url_key:
+                            existing_urls.add(url_key)
                     # 兼容旧数据可能是字符串格式
                     elif isinstance(url_obj, str):
-                        existing_urls.add(url_obj)
+                        url_key = canonicalize_url(url_obj)
+                        if url_key:
+                            existing_urls.add(url_key)
 
                 # 检查是否还有下一页
                 has_more = data.get("data", {}).get("has_more", False)
@@ -497,6 +555,7 @@ class FeishuStorage:
         page_count = 0
 
         async with httpx.AsyncClient(timeout=10) as client:
+            await self._ensure_field_cache(client)
             while True:
                 url = f"{self.base_url}/bitable/v1/apps/{self.settings.feishu.bitable_app_token}/tables/{self.settings.feishu.bitable_table_id}/records/search"
 
@@ -532,6 +591,7 @@ class FeishuStorage:
                     else:
                         url_value = None
 
+                    url_key = canonicalize_url(url_value)
                     publish_date: Optional[datetime] = None
                     if isinstance(publish_raw, (int, float)):
                         # 飞书存的是毫秒时间戳
@@ -547,11 +607,12 @@ class FeishuStorage:
                     if publish_date:
                         publish_date = publish_date.replace(tzinfo=None)
 
-                    if url_value:
+                    if url_key:
                         source_field = self.FIELD_MAPPING.get("source", "来源")
                         source_value = fields.get(source_field, "default")
                         record_item: dict[str, Any] = {
                             "url": str(url_value),
+                            "url_key": url_key,
                             "publish_date": publish_date,
                             "source": str(source_value),
                         }
@@ -598,6 +659,7 @@ class FeishuStorage:
         records: List[dict[str, Any]] = []
 
         async with httpx.AsyncClient(timeout=10) as client:
+            await self._ensure_field_cache(client)
             while True:
                 url = f"{self.base_url}/bitable/v1/apps/{self.settings.feishu.bitable_app_token}/tables/{self.settings.feishu.bitable_table_id}/records/search"
 
