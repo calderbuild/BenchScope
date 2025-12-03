@@ -383,7 +383,45 @@ MGX是一个AI原生的多智能体协作框架（Vibe Coding），专注以下�
 - 分布式系统: "distributed", "consensus", "replication"
 则必须填写backend_mgx_relevance和backend_engineering_value及其推理。
 
-=== 第9部分：质量检查清单 ===
+=== 第9部分：工具/库识别硬性规则（P10新增） ===
+
+【工具/库特征识别——满足任一条即为工具，不是Benchmark】
+1. 标题特征：
+   - 以 -lib, -library, -client, -sdk, -wrapper, -tool, -utils 结尾
+   - 以 -parser, -tokenizer, -splitter, -connector, -adapter 结尾
+   - 示例：splintr（分词器）、xxx-client、yyy-tokenizer
+
+2. 摘要特征：
+   - 包含 "this is a library/tool/package/utility for..."
+   - 包含 "a python package for..." / "a javascript library for..."
+   - 包含 "tokenizer for..." / "parser for..." / "splitter for..."
+   - 主要功能是"提供API/接口/封装"而非"评测任务/数据集/排行榜"
+
+3. 缺少Benchmark信号：
+   - 没有评测指标（Pass@1, BLEU, Accuracy, F1等）
+   - 没有对比基线（GPT-4, Claude, Llama等模型对比）
+   - 没有数据集描述（test set, evaluation set, benchmark dataset）
+   - 没有排行榜或挑战赛
+
+【工具识别后的强制评分处理】
+如果判定候选是工具/库而非Benchmark，必须执行以下强制处理：
+- novelty_score ≤ 3分（工具不具备Benchmark新颖性）
+- relevance_score ≤ 3分（工具不适合纳入MGX Benchmark池）
+- task_domain = "Other"
+- overall_reasoning必须明确指出："该候选是[工具/库/框架]而非Benchmark，不推荐纳入MGX Benchmark池"
+
+【真Benchmark vs 工具库 判断示例】
+✅ 真Benchmark：
+- "HumanEval: A benchmark for code generation" → Benchmark
+- "SWE-bench: Evaluation benchmark for software engineering" → Benchmark
+- "Tokenizer Benchmark: Comparing tokenizer performance" → Benchmark（虽然涉及tokenizer，但主题是评测）
+
+❌ 工具/库：
+- "splintr: A fast BPE tokenizer library" → 工具（提供tokenizer功能，非评测）
+- "AI-research-SKILLs: Collection of skills documents" → 资源库（文档集合，非评测）
+- "llm-client: Python client for LLM APIs" → 工具（API封装，非评测）
+
+=== 第10部分：质量检查清单 ===
 
 输出JSON前，请自检：
 - [ ] 所有score字段在0-10范围内
@@ -401,6 +439,7 @@ MGX是一个AI原生的多智能体协作框架（Vibe Coding），专注以下�
 - [ ] dataset_size_description不是null（可以是"Not specified"）
 - [ ] JSON严格符合Schema，没有多余字段
 - [ ] JSON可以被标准解析器解析（没有语法错误）
+- [ ] **如果是工具/库：novelty_score≤3, relevance_score≤3, task_domain=Other**
 
 【PDF深度内容 (Phase PDF Enhancement)】
 > Introduction部分摘要 (2000字):

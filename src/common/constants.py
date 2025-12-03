@@ -435,7 +435,9 @@ PREFILTER_EXCLUDED_KEYWORDS: Final[list[str]] = [
 ]
 
 # 额外的工具/协议判定关键词（用于GitHub/协议类仓库识别）
+# P10优化：大幅扩展关键词覆盖，避免工具库被误判为Benchmark
 TOOL_LIKE_KEYWORDS: Final[list[str]] = [
+    # 现有关键词保持不变
     "sdk",
     "framework",
     "toolkit",
@@ -452,6 +454,57 @@ TOOL_LIKE_KEYWORDS: Final[list[str]] = [
     "agent framework",
     "model context protocol",
     "mcp",
+    # P10新增：通用工具词
+    "library",
+    "package",
+    "utility",
+    "helper",
+    "module",
+    # P10新增：文本处理类
+    "tokenizer",
+    "splitter",
+    "parser",
+    "converter",
+    "processor",
+    # P10新增：API/网络类
+    "client",
+    "wrapper",
+    "binding",
+    "connector",
+    "adapter",
+    # P10新增：数据处理类
+    "loader",
+    "extractor",
+    "transformer",
+    "serializer",
+    # P10新增：开发工具类
+    "generator",
+    "builder",
+    "compiler",
+    "linter",
+    "formatter",
+]
+
+# P10新增：工具库否定模式（摘要中的工具声明短语）
+TOOL_NEGATIVE_PATTERNS: Final[list[str]] = [
+    "this is a library",
+    "this is a tool",
+    "a python package",
+    "a javascript library",
+    "a typescript library",
+    "utility for",
+    "helper for",
+    "client for",
+    "wrapper for",
+    "tokenizer for",
+    "parser for",
+    "splitter for",
+    "a simple library",
+    "lightweight library",
+    "a fast tokenizer",
+    "text processing library",
+    "nlp library",
+    "data processing tool",
 ]
 
 # 判定“真 Benchmark / Benchmark 方法论”的正向特征
@@ -551,8 +604,10 @@ FEISHU_BATCH_SIZE: Final[int] = 20
 FEISHU_RATE_LIMIT_SECONDS: Final[float] = 0.6
 FEISHU_RATE_LIMIT_DELAY: Final[float] = FEISHU_RATE_LIMIT_SECONDS
 FEISHU_HTTP_TIMEOUT_SECONDS: Final[int] = 15
-FEISHU_HTTP_MAX_RETRIES: Final[int] = 3
-FEISHU_HTTP_RETRY_DELAY_SECONDS: Final[float] = 1.5
+FEISHU_HTTP_MAX_RETRIES: Final[int] = 5  # 从3增加到5次，应对429限流
+FEISHU_HTTP_RETRY_DELAY_SECONDS: Final[float] = 2.0  # 从1.5增加到2秒
+FEISHU_HTTP_MAX_RETRY_DELAY_SECONDS: Final[float] = 30.0  # 新增：指数退避最大延迟
+FEISHU_HTTP_429_EXTRA_DELAY_SECONDS: Final[float] = 10.0  # 新增：429错误额外等待时间
 FEISHU_BENCH_TABLE_URL: Final[str] = (
     "https://deepwisdom.feishu.cn/base/SbIibGBIWayQncslz5kcYMnrnGf?table=tblG5cMwubU6AJcV&view=vewUfT4GO6"
 )

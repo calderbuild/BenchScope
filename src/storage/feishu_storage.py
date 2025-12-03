@@ -74,23 +74,59 @@ class FeishuStorage:
         url: str,
         **kwargs: Any,
     ) -> httpx.Response:
-        """对飞书API请求增加重试，防止偶发超时导致流程中断"""
+        """对飞书API请求增加重试，针对429限流使用更长指数退避
+
+        重试策略：
+        - 普通错误：指数退避 2→3.6→6.5→... 秒
+        - 429限流：额外等待10秒 + 指数退避，最长30秒
+        - 最多重试5次，总等待时间可达90秒
+        """
 
         timeout = kwargs.pop(
             "timeout",
             constants.FEISHU_HTTP_TIMEOUT_SECONDS,
         )
         delay = constants.FEISHU_HTTP_RETRY_DELAY_SECONDS
+        max_delay = constants.FEISHU_HTTP_MAX_RETRY_DELAY_SECONDS
         last_error: Optional[Exception] = None
 
         for attempt in range(1, constants.FEISHU_HTTP_MAX_RETRIES + 1):
             try:
-                return await client.request(
+                resp = await client.request(
                     method,
                     url,
                     timeout=timeout,
                     **kwargs,
                 )
+
+                # 针对429限流错误特殊处理
+                if resp.status_code == 429:
+                    if attempt >= constants.FEISHU_HTTP_MAX_RETRIES:
+                        logger.error(
+                            "飞书API限流(429)重试%d次仍失败: %s",
+                            attempt,
+                            url,
+                        )
+                        resp.raise_for_status()
+
+                    # 429错误使用更长的退避时间：基础延迟 + 额外等待
+                    wait_time = min(
+                        delay + constants.FEISHU_HTTP_429_EXTRA_DELAY_SECONDS,
+                        max_delay,
+                    )
+                    logger.warning(
+                        "飞书API限流(429)，等待%.1f秒后重试(%d/%d): %s",
+                        wait_time,
+                        attempt,
+                        constants.FEISHU_HTTP_MAX_RETRIES,
+                        url,
+                    )
+                    await asyncio.sleep(wait_time)
+                    delay = min(delay * 2, max_delay)  # 指数退避
+                    continue
+
+                return resp
+
             except (httpx.RequestError, httpx.TimeoutException) as exc:
                 last_error = exc
                 logger.debug(
@@ -103,7 +139,7 @@ class FeishuStorage:
                 if attempt >= constants.FEISHU_HTTP_MAX_RETRIES:
                     break
                 await asyncio.sleep(delay)
-                delay *= 1.8
+                delay = min(delay * 1.8, max_delay)
 
         raise FeishuAPIError("飞书请求重试仍失败") from last_error
 

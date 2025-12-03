@@ -82,21 +82,72 @@ def _has_benchmark_characteristics(candidate: RawCandidate) -> bool:
     return _has_benchmark_positive_signal(candidate)
 
 
-def _looks_like_tool_repo(candidate: RawCandidate) -> bool:
-    """基于标题与摘要快速判断是否是工具/框架/协议而非Benchmark。
+def _has_tool_suffix(title: str) -> bool:
+    """检查标题是否以工具类后缀结尾（如 xxx-lib, xxx-client, xxx-tokenizer）"""
+    tool_suffixes = [
+        "-lib",
+        "-library",
+        "-client",
+        "-sdk",
+        "-wrapper",
+        "-tool",
+        "-utils",
+        "-helper",
+        "-connector",
+        "-adapter",
+        "-parser",
+        "-tokenizer",
+        "-splitter",
+        "-package",
+    ]
+    title_lower = title.lower().replace(" ", "-").replace("_", "-")
+    return any(title_lower.endswith(suffix) for suffix in tool_suffixes)
 
-    规则（满足以下任意且缺少benchmark特征则视为工具）：
-    - 命中工具类关键词（SDK/protocol/framework等）
-    - 摘要/README中未出现Benchmark/数据集正向关键词
+
+def _looks_like_tool_repo(candidate: RawCandidate) -> bool:
+    """P10优化版：基于标题与摘要判断是否是工具/框架/协议而非Benchmark。
+
+    改进逻辑（OR逻辑，满足任一即视为工具）：
+    1. 标题以工具类后缀结尾（如 xxx-tokenizer）
+    2. 摘要包含工具声明短语（如 "this is a library"）
+    3. 命中工具类关键词 且 缺少强Benchmark信号
+
+    例外：如果有强Benchmark信号（benchmark dataset, evaluation benchmark等），
+    则不视为工具，避免误杀 "Tokenizer Benchmark" 这类真正的Benchmark。
     """
 
     text = f"{candidate.title} {(candidate.abstract or '')}".lower()
 
-    if not _contains_any(text, constants.TOOL_LIKE_KEYWORDS):
+    # 检查强Benchmark信号（优先级最高，有此信号则不视为工具）
+    strong_benchmark_signals = [
+        "benchmark dataset",
+        "evaluation benchmark",
+        "test set",
+        "leaderboard",
+        "benchmark suite",
+        "evaluation suite",
+    ]
+    if _contains_any(text, strong_benchmark_signals):
         return False
 
+    # 检测1：标题以工具类后缀结尾
+    if _has_tool_suffix(candidate.title):
+        logger.debug("工具检测命中：标题后缀 - %s", candidate.title)
+        return True
+
+    # 检测2：摘要包含工具声明短语
+    if _contains_any(text, constants.TOOL_NEGATIVE_PATTERNS):
+        logger.debug("工具检测命中：声明短语 - %s", candidate.title)
+        return True
+
+    # 检测3：命中工具类关键词 且 缺少benchmark信号
+    has_tool_keyword = _contains_any(text, constants.TOOL_LIKE_KEYWORDS)
     has_benchmark_signal = _contains_any(text, constants.BENCHMARK_DATASET_KEYWORDS)
-    return not has_benchmark_signal
+    if has_tool_keyword and not has_benchmark_signal:
+        logger.debug("工具检测命中：关键词无benchmark信号 - %s", candidate.title)
+        return True
+
+    return False
 
 
 def _looks_like_algo_paper(candidate: RawCandidate) -> bool:
