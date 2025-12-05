@@ -12,9 +12,29 @@ arxiv:
   timeout_seconds: 20  # 增大超时，适应复杂查询
   max_retries: 2       # 减少重试次数，避免长时间阻塞
 
-  # Phase 7: 聚焦MGX核心场景关键词
+  # Phase 11: 扩展通用Benchmark术语 + MGX场景关键词
   keywords:
-    # P0 - 编程与代码
+    # P11新增：通用Benchmark术语（优先匹配，放在最前面）
+    - benchmark
+    - evaluation benchmark
+    - LLM benchmark
+    - language model benchmark
+    - AI benchmark
+    - model evaluation
+    - benchmark dataset
+    - test suite
+    - evaluation framework
+    - benchmarking
+
+    # P11新增：MGX场景扩展
+    - llm-based agent
+    - agent planning
+    - function calling
+    - tool calling
+    - reasoning benchmark
+    - agent evaluation
+
+    # P0 - 编程与代码（保持不变）
     - code generation benchmark
     - code evaluation
     - programming benchmark

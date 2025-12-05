@@ -266,11 +266,57 @@ class GitHubCollector:
             headers["Authorization"] = f"Bearer {self.token}"
         return headers
 
-    def _passes_basic_repo_filters(self, repo: Dict[str, Any]) -> bool:
-        """基础过滤: stars/语言/更新时间"""
+    def _get_dynamic_stars_threshold(self, repo: Dict[str, Any]) -> int:
+        """P11：根据仓库年龄动态调整stars阈值，避免遗漏新兴Benchmark。"""
 
+        created_at = self._parse_datetime(repo.get("created_at"))
+        if not created_at:
+            # 缺少创建时间时回退到默认阈值，保持兼容
+            return max(self.min_stars, constants.GITHUB_DEFAULT_MIN_STARS)
+
+        now = datetime.now(timezone.utc)
+        age_days = (now - created_at).days
+
+        for threshold_days, min_stars in constants.GITHUB_DYNAMIC_STARS_THRESHOLDS:
+            if age_days <= threshold_days:
+                logger.debug(
+                    "GitHub动态Stars阈值: %s (年龄%d天 -> 阈值%d)",
+                    repo.get("full_name"),
+                    age_days,
+                    min_stars,
+                )
+                return min_stars
+
+        return max(self.min_stars, constants.GITHUB_DEFAULT_MIN_STARS)
+
+    def _passes_basic_repo_filters(self, repo: Dict[str, Any]) -> bool:
+        """基础过滤: fork/topic黑名单/动态stars/语言/更新时间"""
+
+        # P11：Fork仓库过滤，快速排除与上游重复的项目
+        if repo.get("fork", False):
+            logger.debug("GitHub Fork仓库过滤: %s", repo.get("full_name"))
+            return False
+
+        # P11：Topic黑名单过滤，剔除SDK/工具类仓库
+        topics = {t.lower() for t in (repo.get("topics") or [])}
+        if topics & constants.GITHUB_TOPIC_BLACKLIST:
+            logger.debug(
+                "GitHub topic黑名单过滤: %s (topics=%s)",
+                repo.get("full_name"),
+                topics,
+            )
+            return False
+
+        # P11：使用动态Stars阈值，照顾新创建的高质量仓库
         stars = repo.get("stargazers_count", 0)
-        if stars < self.min_stars:
+        min_stars_required = self._get_dynamic_stars_threshold(repo)
+        if stars < min_stars_required:
+            logger.debug(
+                "GitHub stars不足: %s (%d < %d)",
+                repo.get("full_name"),
+                stars,
+                min_stars_required,
+            )
             return False
 
         language = (repo.get("language") or "").lower()

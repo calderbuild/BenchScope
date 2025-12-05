@@ -903,3 +903,60 @@ BENCHMARK_TITLE_SIGNALS: Final[list[str]] = [
 OTHER_DOMAIN_RELEVANCE_FLOOR: Final[float] = 7.0  # Other领域相关性门槛
 OTHER_DOMAIN_MAX_RATIO: Final[float] = 0.20  # Other领域最多占20%
 OTHER_DOMAIN_MAX_COUNT: Final[int] = 3  # Other领域最多3条
+
+# ============================================================
+# P11: GitHub Topic黑名单（采集阶段排除工具类仓库）
+# ============================================================
+GITHUB_TOPIC_BLACKLIST: Final[set[str]] = {
+    # SDK/客户端
+    "sdk",
+    "client",
+    "api-client",
+    "rest-client",
+    "grpc-client",
+    # 包装器/适配器
+    "wrapper",
+    "adapter",
+    "binding",
+    "connector",
+    # 框架/库
+    "framework",
+    "library",
+    "toolkit",
+    "package",
+    # 工具类
+    "cli",
+    "cli-tool",
+    "utility",
+    "helper",
+    "tool",
+    # 资源列表
+    "awesome",
+    "awesome-list",
+    "curated-list",
+    "resources",
+    # 协议类
+    "mcp",
+    "model-context-protocol",
+    "protocol",
+    # 其他非Benchmark
+    "boilerplate",
+    "starter",
+    "template",
+    "scaffold",
+    "tutorial",
+    "course",
+    "learning",
+    "guide",
+}
+
+# ============================================================
+# P11: GitHub动态Stars阈值（按仓库年龄调整，捕获新兴Benchmark）
+# ============================================================
+GITHUB_DYNAMIC_STARS_THRESHOLDS: Final[list[tuple[int, int]]] = [
+    # (仓库年龄天数, 最低stars)
+    (7, 5),  # 7天内创建：stars >= 5（非常新，降低门槛）
+    (30, 15),  # 30天内创建：stars >= 15
+    (90, 30),  # 90天内创建：stars >= 30
+]
+GITHUB_DEFAULT_MIN_STARS: Final[int] = 50  # 超过90天的仓库使用默认阈值
