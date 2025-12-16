@@ -34,7 +34,8 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y poppler-utils docker.io
+          sudo apt-get install -y poppler-utils
+          # docker.io 不需要安装，GitHub Actions runner 已预装 Docker
 
       - name: Verify Poppler installation
         run: |
