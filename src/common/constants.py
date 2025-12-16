@@ -610,7 +610,7 @@ BENCHMARK_POSITIVE_SIGNALS: Final[list[str]] = [
 ]
 
 # 相关性硬下限（低于此分数不入库）
-RELEVANCE_HARD_FLOOR: Final[float] = 6.0
+RELEVANCE_HARD_FLOOR: Final[float] = 2.0  # 临时降低到2.0以测试推送功能
 
 # ---- 存储与通知 ----
 FEISHU_BATCH_SIZE: Final[int] = 20
@@ -732,7 +732,7 @@ FEISHU_LOW_PICK_PER_SOURCE: Final[dict[str, int]] = {
 # 推送过滤与质量控制
 PUSH_MAX_AGE_DAYS: Final[int] = 30  # 超过30天仅保留高分(>=8)的历史优质项
 PUSH_RELEVANCE_FLOOR: Final[float] = (
-    6.0  # P14: 与入库阈值RELEVANCE_HARD_FLOOR统一，避免入库后被推送过滤
+    2.0  # 临时降低到2.0以测试推送功能
 )
 PUSH_TOTAL_CAP: Final[int] = 15  # 单次推送总条数上限
 
@@ -916,9 +916,9 @@ BENCHMARK_TITLE_SIGNALS: Final[list[str]] = [
 ]
 
 # Other领域推送限制
-OTHER_DOMAIN_RELEVANCE_FLOOR: Final[float] = 7.0  # Other领域相关性门槛
-OTHER_DOMAIN_MAX_RATIO: Final[float] = 0.20  # Other领域最多占20%
-OTHER_DOMAIN_MAX_COUNT: Final[int] = 3  # Other领域最多3条
+OTHER_DOMAIN_RELEVANCE_FLOOR: Final[float] = 2.0  # 临时降低到2.0以测试推送功能
+OTHER_DOMAIN_MAX_RATIO: Final[float] = 1.0  # 临时禁用比例限制
+OTHER_DOMAIN_MAX_COUNT: Final[int] = 10  # 临时放宽数量限制
 
 # ============================================================
 # P11: GitHub Topic黑名单（采集阶段排除工具类仓库）
