@@ -17,6 +17,7 @@ from src.common import constants
 from src.common.url_utils import canonicalize_url
 from src.config import Settings, get_settings
 from src.models import ScoredCandidate
+from src.storage.notification_history import NotificationHistory
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,8 @@ class FeishuNotifier:
     ) -> None:
         self.settings = settings or get_settings()
         self.webhook_url = webhook_url or self.settings.feishu.webhook_url
+        # 通知历史跟踪：已通知过的URL不再重复推送
+        self.notification_history = NotificationHistory()
 
     async def notify(self, candidates: List[ScoredCandidate]) -> None:
         """分层推送: 高优先级卡片 + 中优先级摘要"""
@@ -44,6 +47,22 @@ class FeishuNotifier:
         candidates = self._prefilter_for_push(candidates)
         if not candidates:
             logger.info("预过滤后无候选可推送")
+            return
+
+        # 通知历史过滤：已通知过的URL永久过滤，确保用户只看到新鲜内容
+        before_history_filter = len(candidates)
+        candidates = [
+            c for c in candidates
+            if self.notification_history.should_notify(c.url)
+        ]
+        history_filtered_count = before_history_filter - len(candidates)
+        if history_filtered_count > 0:
+            logger.info(
+                "通知历史过滤: 移除%d条已推送过的项目",
+                history_filtered_count,
+            )
+        if not candidates:
+            logger.info("通知历史过滤后无新候选可推送")
             return
 
         if not constants.ENABLE_SMART_PUSH_STRATEGY:
@@ -91,6 +110,14 @@ class FeishuNotifier:
             f"✅ 推送完成: 高优先级{len(high_priority)}条(卡片), "
             f"中优先级{len(medium_priority)}条(摘要)"
         )
+
+        # 5. 更新通知历史：记录已推送的URL，后续采集将自动过滤
+        notified_items = [
+            (c.url, c.title) for c in (high_priority + medium_priority) if c.url
+        ]
+        if notified_items:
+            updated_count = self.notification_history.batch_increment(notified_items)
+            logger.info("通知历史更新: 记录%d条已推送URL", updated_count)
 
     async def send_card(self, title: str, candidate: ScoredCandidate) -> None:
         """发送单条候选的卡片消息"""

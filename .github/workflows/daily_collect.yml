@@ -25,6 +25,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Download notification history
+        continue-on-error: true
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          name: notification-history
+          path: .
+          search_artifacts: true
+          workflow_conclusion: success
+
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -144,3 +153,11 @@ jobs:
           name: sqlite-backup
           path: fallback.db
           retention-days: 7
+
+      - name: Upload notification history
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: notification-history
+          path: notification_history.db
+          retention-days: 30

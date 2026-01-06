@@ -291,9 +291,19 @@ async def main() -> None:
     # Step 5: 图片上传已禁用以节省时间
     logger.info("[5/8] 图片上传已跳过，减少耗时")
 
-    # Step 6: 存储入库
+    # Step 6: 存储入库 (仅保存high/medium优先级，low不入飞书表格)
     logger.info("[6/8] 存储入库...")
-    actually_saved = await storage.save(scored)  # 获取实际写入的记录（去重后）
+
+    # 用户需求：低分low不用保存到表格，只保存high/medium
+    high_medium = [c for c in scored if c.priority in ("high", "medium")]
+    low_filtered_count = len(scored) - len(high_medium)
+    if low_filtered_count > 0:
+        logger.info(
+            "优先级过滤: 跳过%d条low优先级候选 (不保存到飞书表格)",
+            low_filtered_count,
+        )
+
+    actually_saved = await storage.save(high_medium)  # 获取实际写入的记录（去重后）
     await storage.sync_from_sqlite()
     await storage.cleanup()
     logger.info("存储完成: 新增%d条\n", len(actually_saved))
