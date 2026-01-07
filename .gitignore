@@ -44,6 +44,7 @@ logs/
 
 # 数据库
 *.db
+!notification_history.db
 *.sqlite
 *.sqlite3
 fallback.db
