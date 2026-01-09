@@ -112,6 +112,30 @@ jobs:
           echo "=== Network route test ==="
           traceroute -m 5 export.arxiv.org || true
 
+      - name: Validate required secrets
+        env:
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_BITABLE_APP_TOKEN: ${{ secrets.FEISHU_BITABLE_APP_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          echo "=== Validating required secrets ==="
+          MISSING=""
+          [ -z "$FEISHU_APP_ID" ] && MISSING="$MISSING FEISHU_APP_ID"
+          [ -z "$FEISHU_APP_SECRET" ] && MISSING="$MISSING FEISHU_APP_SECRET"
+          [ -z "$FEISHU_BITABLE_APP_TOKEN" ] && MISSING="$MISSING FEISHU_BITABLE_APP_TOKEN"
+          [ -z "$OPENAI_API_KEY" ] && MISSING="$MISSING OPENAI_API_KEY"
+          if [ -n "$MISSING" ]; then
+            echo "FATAL: Missing required secrets:$MISSING"
+            echo "Please configure these in GitHub Settings > Secrets and variables > Actions"
+            exit 1
+          fi
+          echo "FEISHU_APP_ID: ${#FEISHU_APP_ID} chars"
+          echo "FEISHU_APP_SECRET: ${#FEISHU_APP_SECRET} chars"
+          echo "FEISHU_BITABLE_APP_TOKEN: ${#FEISHU_BITABLE_APP_TOKEN} chars"
+          echo "OPENAI_API_KEY: ${#OPENAI_API_KEY} chars"
+          echo "All required secrets configured"
+
       - name: Run pipeline
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
