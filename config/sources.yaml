@@ -7,10 +7,10 @@
 
 arxiv:
   enabled: true
-  max_results: 100     # 增加到100条，确保不漏高质量论文
+  max_results: 50      # 单次50条，减轻arXiv响应压力
   lookback_hours: 168  # 7天窗口，提升新鲜度，减少重复
-  timeout_seconds: 30  # P15: arXiv响应偏慢,提高超时避免全部超时
-  max_retries: 2       # 减少重试次数，避免长时间阻塞
+  timeout_seconds: 60  # arXiv大查询需要更长超时
+  max_retries: 3       # 3次重试，配合退避(5s,10s,10s)
 
   # Phase 11: 扩展通用Benchmark术语 + MGX场景关键词
   keywords:
