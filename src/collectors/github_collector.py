@@ -8,7 +8,7 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -104,7 +104,7 @@ class GitHubCollector:
             if isinstance(result, BaseException):
                 logger.error("GitHub API 任务失败(%s): %r", topic, result)
                 continue
-            candidates.extend(cast(List[RawCandidate], result))
+            candidates.extend(result)
 
         logger.info("GitHub采集完成,候选总数%s", len(candidates))
         return candidates
@@ -118,7 +118,6 @@ class GitHubCollector:
             datetime.now(timezone.utc) - timedelta(days=self.lookback_days)
         ).strftime("%Y-%m-%d")
         params = {
-            # 使用创建时间筛选，避免老仓库因新commit被误认为新Benchmark
             "q": f"{topic} benchmark in:name,description,readme created:>={lookback_date}",
             "sort": "stars",
             "order": "desc",
@@ -201,32 +200,25 @@ class GitHubCollector:
         stars = repo.get("stargazers_count", 0)
         license_info = repo.get("license")
         license_type = license_info.get("name") if license_info else None
-        task_type = self._extract_task_type(readme_text or repo.get("description", ""))
+        task_type = self._extract_task_type(readme_text)
 
         readme_meta = self._extract_raw_metadata(readme_text)
+        dataset_url = URLExtractor.extract_dataset_url(readme_text)
 
-        # 从README中提取数据集URL
-        dataset_url = (
-            URLExtractor.extract_dataset_url(readme_text) if readme_text else None
-        )
-
-        # 清理README文本（去除HTML/Markdown噪声）
-        # 这是为了解决飞书表格中abstract字段被污染的问题（包含<!-- <p align="center"> <img alt=... 等HTML标签）
-        cleaned_abstract = (
-            clean_summary_text(readme_text, max_length=2000) if readme_text else None
-        )
+        # 清理 HTML/Markdown 噪声,避免飞书表格 abstract 字段被污染
+        cleaned_abstract = clean_summary_text(readme_text, max_length=2000)
 
         return RawCandidate(
             title=repo.get("full_name", ""),
             url=repo.get("html_url", ""),
             source="github",
-            abstract=cleaned_abstract,  # 使用清理后的文本
+            abstract=cleaned_abstract,
             github_stars=stars,
             github_url=repo.get("html_url"),
             publish_date=self._parse_datetime(repo.get("pushed_at")),
             license_type=license_type,
             task_type=task_type,
-            dataset_url=dataset_url,  # 新增：从README提取数据集URL
+            dataset_url=dataset_url,
             raw_metrics=readme_meta.metrics or None,
             raw_baselines=readme_meta.baselines or None,
             raw_dataset_size=readme_meta.dataset_size,
@@ -271,11 +263,10 @@ class GitHubCollector:
         return headers
 
     def _get_dynamic_stars_threshold(self, repo: Dict[str, Any]) -> int:
-        """P11：根据仓库年龄动态调整stars阈值，避免遗漏新兴Benchmark。"""
+        """根据仓库年龄动态调整 stars 阈值,避免遗漏新兴 Benchmark"""
 
         created_at = self._parse_datetime(repo.get("created_at"))
         if not created_at:
-            # 缺少创建时间时回退到默认阈值，保持兼容
             return max(self.min_stars, constants.GITHUB_DEFAULT_MIN_STARS)
 
         now = datetime.now(timezone.utc)
@@ -296,12 +287,10 @@ class GitHubCollector:
     def _passes_basic_repo_filters(self, repo: Dict[str, Any]) -> bool:
         """基础过滤: fork/topic黑名单/动态stars/语言/更新时间"""
 
-        # P11：Fork仓库过滤，快速排除与上游重复的项目
         if repo.get("fork", False):
             logger.debug("GitHub Fork仓库过滤: %s", repo.get("full_name"))
             return False
 
-        # P11：Topic黑名单过滤，剔除SDK/工具类仓库
         topics = {t.lower() for t in (repo.get("topics") or [])}
         if topics & constants.GITHUB_TOPIC_BLACKLIST:
             logger.debug(
@@ -311,7 +300,6 @@ class GitHubCollector:
             )
             return False
 
-        # P11：使用动态Stars阈值，照顾新创建的高质量仓库
         stars = repo.get("stargazers_count", 0)
         min_stars_required = self._get_dynamic_stars_threshold(repo)
         if stars < min_stars_required:

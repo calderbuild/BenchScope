@@ -55,9 +55,6 @@ class FeishuStorage:
         "license_type": "许可证",  # 修复: "License类型" → "许可证"
     }
 
-    # 字段格式化常量
-    _MAX_STR_LENGTH: int = 200
-
     def __init__(self, settings: Optional[Settings] = None) -> None:
         self.settings = settings or get_settings()
         self.base_url = "https://open.feishu.cn/open-apis"
@@ -428,7 +425,7 @@ class FeishuStorage:
             name: value for name, value in fields.items() if name in self._field_names
         }
         if not self._missing_fields_logged:
-            missing = set(fields.keys()) - set(filtered.keys())
+            missing = fields.keys() - filtered.keys()
             if missing:
                 logger.warning(
                     "飞书表缺少以下字段，已跳过写入: %s",
@@ -579,27 +576,27 @@ class FeishuStorage:
             fields[FM["publish_date"]] = int(candidate.publish_date.timestamp() * 1000)
 
         # 任务领域：支持字符串或列表格式
-        if task_domain := getattr(candidate, "task_domain", None):
-            if isinstance(task_domain, str):
-                fields[FM["task_domain"]] = [d.strip() for d in task_domain.split(",")]
-            elif isinstance(task_domain, list):
-                fields[FM["task_domain"]] = task_domain
+        if candidate.task_domain:
+            if isinstance(candidate.task_domain, str):
+                fields[FM["task_domain"]] = [
+                    d.strip() for d in candidate.task_domain.split(",")
+                ]
+            elif isinstance(candidate.task_domain, list):
+                fields[FM["task_domain"]] = candidate.task_domain
 
-        if metrics_str := self._list_to_str(getattr(candidate, "metrics", None)):
+        if metrics_str := self._list_to_str(candidate.metrics):
             fields[FM["metrics"]] = metrics_str
 
-        if baselines_str := self._list_to_str(getattr(candidate, "baselines", None)):
+        if baselines_str := self._list_to_str(candidate.baselines):
             fields[FM["baselines"]] = baselines_str
 
-        if institution := self._truncate_str(getattr(candidate, "institution", None)):
+        if institution := self._truncate_str(candidate.institution):
             fields[FM["institution"]] = institution
 
-        if (dataset_size := getattr(candidate, "dataset_size", None)) is not None:
-            fields[FM["dataset_size"]] = dataset_size
+        if candidate.dataset_size is not None:
+            fields[FM["dataset_size"]] = candidate.dataset_size
 
-        if desc := self._truncate_str(
-            getattr(candidate, "dataset_size_description", None)
-        ):
+        if desc := self._truncate_str(candidate.dataset_size_description):
             fields[FM["dataset_size_description"]] = desc
 
         if candidate.license_type:
@@ -608,19 +605,19 @@ class FeishuStorage:
         if url := self._format_url(candidate.dataset_url):
             fields[FM["dataset_url"]] = url
 
-        if url := self._format_url(getattr(candidate, "hero_image_url", None)):
-            fields[FM["hero_image_url"]] = url
-
-        if key := getattr(candidate, "hero_image_key", None):
-            fields[FM["hero_image_key"]] = key
-
         return {"fields": fields}
 
-    async def get_existing_urls(self) -> set[str]:
-        """查询飞书Bitable已存在的所有URL（用于去重）
+    @staticmethod
+    def _extract_url_value(url_obj: Any) -> Optional[str]:
+        """从飞书URL字段提取链接值，兼容对象和字符串格式"""
+        if isinstance(url_obj, dict):
+            return url_obj.get("link")
+        if isinstance(url_obj, str):
+            return url_obj
+        return None
 
-        P13修复: 改用GET records接口，规避search接口分页token重复导致漏数
-        """
+    async def get_existing_urls(self) -> set[str]:
+        """查询飞书Bitable已存在的所有URL（用于去重）"""
         await self._ensure_access_token()
 
         existing_urls: set[str] = set()
@@ -631,17 +628,8 @@ class FeishuStorage:
             items = await self._paginated_fetch(client)
 
             for item in items:
-                fields = item.get("fields", {})
-                url_obj = fields.get(url_field_name)
-
-                # 飞书URL字段是对象格式: {"link": "url", "text": "display text"}
-                if isinstance(url_obj, dict):
-                    url_value = url_obj.get("link")
-                elif isinstance(url_obj, str):
-                    url_value = url_obj
-                else:
-                    continue
-
+                url_obj = item.get("fields", {}).get(url_field_name)
+                url_value = self._extract_url_value(url_obj)
                 url_key = canonicalize_url(url_value)
                 if url_key:
                     existing_urls.add(url_key)
@@ -668,25 +656,16 @@ class FeishuStorage:
 
             for item in items:
                 fields = item.get("fields", {})
-                url_obj = fields.get(url_field)
+                url_value = self._extract_url_value(fields.get(url_field))
                 publish_raw = fields.get(publish_field)
                 created_raw = fields.get("创建时间")
-
-                # URL字段兼容两种格式
-                if isinstance(url_obj, dict):
-                    url_value = url_obj.get("link")
-                elif isinstance(url_obj, str):
-                    url_value = url_obj
-                else:
-                    url_value = None
 
                 url_key = canonicalize_url(url_value)
                 publish_date = self._parse_timestamp(publish_raw)
                 created_at = self._parse_timestamp(created_raw)
 
                 if url_key:
-                    source_field = self.FIELD_MAPPING.get("source", "来源")
-                    source_value = fields.get(source_field, "default")
+                    source_value = fields.get(self.FIELD_MAPPING["source"], "default")
                     # P18修复：规范化source字段，飞书可能存为列表或大写
                     if isinstance(source_value, list):
                         source_value = source_value[0] if source_value else "default"
@@ -710,7 +689,7 @@ class FeishuStorage:
             return None
         if isinstance(value, (int, float)):
             return datetime.fromtimestamp(value / 1000)
-        if isinstance(value, str) and value:
+        if isinstance(value, str):
             try:
                 dt = datetime.fromisoformat(value.replace("Z", "+00:00"))
                 return dt.replace(tzinfo=None)

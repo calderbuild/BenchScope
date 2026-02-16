@@ -109,7 +109,6 @@ class HelmCollector:
 
         for section in sections:
             title = section.get("title", "")
-            # "All scenarios"只是目录,实际字段在后续分组中重复,可直接跳过
             if title.strip().lower() == "all scenarios":
                 continue
 
@@ -136,10 +135,8 @@ class HelmCollector:
                 adaptation = row_dict.get("Adaptation method") or ""
                 models = row_dict.get("# models")
 
-                # 摘要格式优化：截断过长描述，用空格连接避免换行影响飞书表格排版
                 abstract_parts = []
                 if description:
-                    # 截断到200字符，避免摘要过长
                     desc_clean = description.strip()[:200]
                     if len(description) > 200:
                         desc_clean += "..."
@@ -149,7 +146,6 @@ class HelmCollector:
                 if models is not None:
                     abstract_parts.append(f"覆盖模型数: {models}")
 
-                # 用" | "分隔，保持单行显示
                 abstract = " | ".join(abstract_parts) if abstract_parts else None
 
                 candidate_url = self._build_group_url(slug)

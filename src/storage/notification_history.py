@@ -82,6 +82,23 @@ class NotificationHistory:
         count = self.get_notify_count(url)
         return count == 0  # 只有从未通知过的才允许推送
 
+    def _upsert_notify(
+        self, conn: sqlite3.Connection, url_key: str, title: Optional[str], now: str
+    ) -> None:
+        """UPSERT 单条通知记录"""
+        conn.execute(
+            """
+            INSERT INTO notification_history
+                (url_key, notify_count, first_notified, last_notified, title)
+            VALUES (?, 1, ?, ?, ?)
+            ON CONFLICT(url_key) DO UPDATE SET
+                notify_count = notify_count + 1,
+                last_notified = excluded.last_notified,
+                title = COALESCE(excluded.title, title)
+            """,
+            (url_key, now, now, title or ""),
+        )
+
     def increment_notify_count(self, url: str, title: Optional[str] = None) -> int:
         """Increment notification count for a URL. Returns new count.
 
@@ -95,36 +112,15 @@ class NotificationHistory:
 
         try:
             with sqlite3.connect(self.db_path) as conn:
-                # 检查是否存在
+                self._upsert_notify(conn, url_key, title, now)
+                conn.commit()
+
                 cursor = conn.execute(
                     "SELECT notify_count FROM notification_history WHERE url_key = ?",
                     (url_key,),
                 )
                 row = cursor.fetchone()
-
-                if row:
-                    new_count = row[0] + 1
-                    conn.execute(
-                        """
-                        UPDATE notification_history
-                        SET notify_count = ?, last_notified = ?, title = COALESCE(?, title)
-                        WHERE url_key = ?
-                    """,
-                        (new_count, now, title, url_key),
-                    )
-                else:
-                    new_count = 1
-                    conn.execute(
-                        """
-                        INSERT INTO notification_history
-                        (url_key, notify_count, first_notified, last_notified, title)
-                        VALUES (?, ?, ?, ?, ?)
-                    """,
-                        (url_key, new_count, now, now, title or ""),
-                    )
-
-                conn.commit()
-                return new_count
+                return row[0] if row else 0
         except Exception as e:
             logger.warning("Failed to increment notify count for %s: %s", url_key, e)
             return 0
@@ -150,34 +146,7 @@ class NotificationHistory:
                     url_key = canonicalize_url(url)
                     if not url_key:
                         continue
-
-                    cursor = conn.execute(
-                        "SELECT notify_count FROM notification_history WHERE url_key = ?",
-                        (url_key,),
-                    )
-                    row = cursor.fetchone()
-
-                    if row:
-                        new_count = row[0] + 1
-                        conn.execute(
-                            """
-                            UPDATE notification_history
-                            SET notify_count = ?, last_notified = ?,
-                                title = COALESCE(?, title)
-                            WHERE url_key = ?
-                        """,
-                            (new_count, now, title, url_key),
-                        )
-                    else:
-                        conn.execute(
-                            """
-                            INSERT INTO notification_history
-                            (url_key, notify_count, first_notified, last_notified, title)
-                            VALUES (?, ?, ?, ?, ?)
-                        """,
-                            (url_key, 1, now, now, title or ""),
-                        )
-
+                    self._upsert_notify(conn, url_key, title, now)
                     success_count += 1
 
                 conn.commit()

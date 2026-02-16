@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
 
 import arxiv
@@ -26,7 +26,6 @@ class ArxivCollector:
         self.settings = settings or get_settings()
         cfg = self.settings.sources.arxiv
         self.enabled = cfg.enabled
-        # Phase 7: arXiv查询策略完全可配置,修改YAML即可调整
         self.keywords = cfg.keywords or constants.ARXIV_KEYWORDS
         self.categories = cfg.categories or constants.ARXIV_CATEGORIES
         self.max_results = cfg.max_results
@@ -86,7 +85,7 @@ class ArxivCollector:
         """同步执行arXiv查询,供线程池调用"""
 
         class _TimeoutSession(requests.Session):
-            """给requests.Session注入默认timeout（P15: 避免请求无超时导致线程悬挂）"""
+            """给 requests.Session 注入默认 timeout"""
 
             def __init__(self, timeout_seconds: int) -> None:
                 super().__init__()
@@ -108,14 +107,11 @@ class ArxivCollector:
             page_size=min(self.max_results, constants.ARXIV_PAGE_SIZE_LIMIT),
             num_retries=0,
         )
-        # P15: arxiv.py内部requests默认无timeout，这里强制注入，避免asyncio超时取消后线程仍继续跑
         client._session = _TimeoutSession(timeout_seconds=self.timeout)
         return list(client.results(search))
 
     async def _to_candidates(self, results: List[arxiv.Result]) -> List[RawCandidate]:
         """将arXiv返回转成内部数据结构"""
-
-        from datetime import timezone
 
         cutoff = datetime.now(timezone.utc) - self.lookback
         candidates: List[RawCandidate] = []
@@ -129,7 +125,6 @@ class ArxivCollector:
             raw_authors, raw_institutions = self._extract_authors_institutions(paper)
             arxiv_id = paper.entry_id.split("/")[-1].split("v")[0]
 
-            # 从论文摘要和comment中提取数据集URL
             text_to_search = f"{paper.summary or ''}\n{paper.comment or ''}"
             dataset_url = URLExtractor.extract_dataset_url(text_to_search)
 
@@ -141,8 +136,8 @@ class ArxivCollector:
                     abstract=paper.summary,
                     authors=[author.name for author in paper.authors],
                     publish_date=paper.published,
-                    paper_url=paper.entry_id,  # arXiv论文页面链接
-                    dataset_url=dataset_url,  # 新增：从摘要提取数据集URL
+                    paper_url=paper.entry_id,
+                    dataset_url=dataset_url,
                     raw_authors=raw_authors,
                     raw_institutions=raw_institutions,
                     raw_metadata={

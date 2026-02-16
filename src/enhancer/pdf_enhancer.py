@@ -18,7 +18,7 @@ import time
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import arxiv
 import httpx
@@ -43,11 +43,9 @@ class PDFContent:
 
     title: str
     abstract: str  # 完整摘要（预期 500-1000 字）
-    sections: Dict[str, str]  # {"Introduction": "...", "Methods": "...", ...}
-    authors_affiliations: List[
-        Tuple[str, str]
-    ]  # [("Alice Zhang", "Stanford University"), ...]
-    references: List[str]  # 引用文献列表（原始字符串）
+    sections: dict[str, str]  # {"Introduction": "...", "Methods": "...", ...}
+    authors_affiliations: list[tuple[str, str]]  # [("Alice Zhang", "Stanford University"), ...]
+    references: list[str]  # 引用文献列表（原始字符串）
     evaluation_summary: Optional[str] = None  # Evaluation 部分摘要（最多 2000 字）
     dataset_summary: Optional[str] = None  # Dataset 部分摘要（最多 1000 字）
     baselines_summary: Optional[str] = None  # Baselines 部分摘要（最多 1000 字）
@@ -111,8 +109,6 @@ class PDFEnhancer:
             if not pdf_path:
                 return candidate
 
-            await self._generate_arxiv_cover(arxiv_id, pdf_path, candidate)
-
             pdf_content = await self._parse_pdf(pdf_path)
             if not pdf_content:
                 return candidate
@@ -125,28 +121,23 @@ class PDFEnhancer:
             logger.error("PDF 增强失败 (%s): %s", arxiv_id, exc)
             return candidate
 
-    async def enhance_batch(self, candidates: List[RawCandidate]) -> List[RawCandidate]:
+    async def enhance_batch(self, candidates: list[RawCandidate]) -> list[RawCandidate]:
         """批量增强候选项，默认采用受限并发。"""
 
         if not candidates:
             return []
 
-        concurrency = max(1, constants.PDF_ENHANCER_MAX_CONCURRENCY)
-        semaphore = asyncio.Semaphore(concurrency)
-        results: List[Optional[RawCandidate]] = [None] * len(candidates)
+        semaphore = asyncio.Semaphore(max(1, constants.PDF_ENHANCER_MAX_CONCURRENCY))
+        results: list[Optional[RawCandidate]] = [None] * len(candidates)
 
         async def _enhance_with_lock(index: int, candidate: RawCandidate) -> None:
             async with semaphore:
                 results[index] = await self.enhance_candidate(candidate)
 
-        tasks = [
-            asyncio.create_task(_enhance_with_lock(idx, cand))
-            for idx, cand in enumerate(candidates)
-        ]
-        for task in asyncio.as_completed(tasks):
-            await task
+        await asyncio.gather(
+            *[_enhance_with_lock(idx, cand) for idx, cand in enumerate(candidates)]
+        )
 
-        # 并发执行后保持输入顺序，与调用方解耦
         return [
             item if item is not None else candidates[idx]
             for idx, item in enumerate(results)
@@ -255,7 +246,7 @@ class PDFEnhancer:
             logger.warning("PDF解析结果非字典类型: %s", type(article_dict))
             return None
 
-        sections: Dict[str, str] = {}
+        sections: dict[str, str] = {}
         raw_sections: Any = article_dict.get("sections") or []
         for section in raw_sections:
             if not isinstance(section, dict):
@@ -265,7 +256,7 @@ class PDFEnhancer:
             if heading and text:
                 sections[heading] = text
 
-        authors_affiliations: List[Tuple[str, str]] = []
+        authors_affiliations: list[tuple[str, str]] = []
         raw_authors: Any = article_dict.get("authors") or []
         for author in raw_authors:
             if not isinstance(author, dict):
@@ -280,47 +271,25 @@ class PDFEnhancer:
             if name:
                 authors_affiliations.append((name, affiliation))
 
-        introduction_summary = self._extract_section_summary(
-            sections,
-            keywords=constants.PDF_SECTION_P1_CONFIGS[0][1],
-            max_len=constants.PDF_SECTION_P1_CONFIGS[0][2],
-        )
-        method_summary = self._extract_section_summary(
-            sections,
-            keywords=constants.PDF_SECTION_P1_CONFIGS[1][1],
-            max_len=constants.PDF_SECTION_P1_CONFIGS[1][2],
-        )
-        evaluation_summary = self._extract_section_summary(
-            sections,
-            keywords=constants.PDF_SECTION_P1_CONFIGS[2][1],
-            max_len=constants.PDF_SECTION_P1_CONFIGS[2][2],
-        )
-        dataset_summary = self._extract_section_summary(
-            sections,
-            keywords=constants.PDF_SECTION_P1_CONFIGS[3][1],
-            max_len=constants.PDF_SECTION_P1_CONFIGS[3][2],
-        )
-        baselines_summary = self._extract_section_summary(
-            sections,
-            keywords=constants.PDF_SECTION_P2_CONFIGS[0][1],
-            max_len=constants.PDF_SECTION_P2_CONFIGS[0][2],
-        )
-        conclusion_summary = self._extract_section_summary(
-            sections,
-            keywords=constants.PDF_SECTION_P2_CONFIGS[1][1],
-            max_len=constants.PDF_SECTION_P2_CONFIGS[1][2],
-        )
+        all_configs = constants.PDF_SECTION_P1_CONFIGS + constants.PDF_SECTION_P2_CONFIGS
+        summaries: dict[str, Optional[str]] = {}
+        for name, keywords, max_len in all_configs:
+            summaries[name] = self._extract_section_summary(
+                sections, keywords=keywords, max_len=max_len
+            )
+
+        introduction_summary = summaries["introduction"]
+        method_summary = summaries["method"]
+        evaluation_summary = summaries["evaluation"]
+        dataset_summary = summaries["dataset"]
+        baselines_summary = summaries["baselines"]
+        conclusion_summary = summaries["conclusion"]
 
         # 至少提取2个P1核心章节，若不足仅警告不阻断流程
         p1_count = sum(
             1
-            for summary in (
-                introduction_summary,
-                method_summary,
-                evaluation_summary,
-                dataset_summary,
-            )
-            if summary
+            for name, _, _ in constants.PDF_SECTION_P1_CONFIGS
+            if summaries[name]
         )
         if p1_count < constants.PDF_MIN_P1_SECTIONS:
             logger.warning(
@@ -346,7 +315,7 @@ class PDFEnhancer:
             conclusion_summary=conclusion_summary,
         )
 
-    async def _call_grobid_with_retry(self, pdf_path: Path) -> Optional[Dict[str, Any]]:
+    async def _call_grobid_with_retry(self, pdf_path: Path) -> Optional[dict[str, Any]]:
         """调用 GROBID 并在连接异常时自动重试与重选服务。"""
 
         last_exc: Optional[Exception] = None
@@ -387,8 +356,8 @@ class PDFEnhancer:
 
     def _extract_section_summary(
         self,
-        sections: Dict[str, str],
-        keywords: List[str],
+        sections: dict[str, str],
+        keywords: list[str],
         max_len: int,
     ) -> Optional[str]:
         """从章节字典中提取包含目标关键词的摘要。
@@ -402,19 +371,19 @@ class PDFEnhancer:
 
     def _extract_urls_from_pdf(
         self, pdf_content: PDFContent
-    ) -> Dict[str, Optional[str]]:
+    ) -> dict[str, Optional[str]]:
         """从PDF正文提取 GitHub/数据集/论文 URL。
 
         优先级：Code/Data Availability -> Evaluation/Dataset -> Intro/Method -> Conclusion -> 其他章节。
         """
 
-        urls: Dict[str, Optional[str]] = {
+        urls: dict[str, Optional[str]] = {
             "github_url": None,
             "dataset_url": None,
             "paper_url": None,
         }
 
-        priority_sections: List[str] = []
+        priority_sections: list[str] = []
 
         # 章节优先：根据标题关键词挑选
         section_priority_keywords = [
@@ -497,7 +466,7 @@ class PDFEnhancer:
         repo = repo.replace(".git", "")
         return f"https://github.com/{owner}/{repo}"
 
-    async def _fetch_github_metadata(self, github_url: str) -> Dict[str, Any]:
+    async def _fetch_github_metadata(self, github_url: str) -> dict[str, Any]:
         """从 GitHub API 获取 stars / 许可证 / 活跃度元数据，失败则返回空字典。"""
 
         if not github_url or "github.com" not in github_url:
@@ -616,12 +585,6 @@ class PDFEnhancer:
         candidate.raw_metadata = metadata
 
         return candidate
-
-    async def _generate_arxiv_cover(
-        self, arxiv_id: str, pdf_path: Path, candidate: RawCandidate
-    ) -> None:
-        """封面生成功能已移除，空实现避免额外耗时。"""
-        return
 
     @staticmethod
     def _extract_arxiv_id(url: str) -> Optional[str]:

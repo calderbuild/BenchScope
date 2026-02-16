@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, List, Optional
 
 import httpx
@@ -75,14 +75,10 @@ class DBEnginesCollector:
     def _parse_row(self, row: Any, idx: int) -> Optional[RawCandidate]:
         """解析单行排名数据"""
 
-        try:
-            rank_cell = row.select_one("td:nth-of-type(1)")
-            name_cell = row.select_one("th.pad-l a")
-            type_cell = row.select_one("th.pad-r")
-            score_cell = row.select_one("td.pad-l")
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("解析DB-Engines第%s行失败: %s", idx + 1, exc)
-            return None
+        rank_cell = row.select_one("td:nth-of-type(1)")
+        name_cell = row.select_one("th.pad-l a")
+        type_cell = row.select_one("th.pad-r")
+        score_cell = row.select_one("td.pad-l")
 
         if not all([rank_cell, name_cell, type_cell, score_cell]):
             return None
@@ -121,15 +117,15 @@ class DBEnginesCollector:
 
         if not href:
             return f"{self.base_url}/ranking"
-        if href.startswith("http://") or href.startswith("https://"):
+        if href.startswith(("http://", "https://")):
             return href
         if not href.startswith("/"):
             return f"{self.base_url}/{href}"
-        base = self.base_url.rstrip("/")
-        return f"{base}{href}"
+        return f"{self.base_url.rstrip('/')}{href}"
 
-    def _get_ranking_update_date(self) -> datetime:
-        """DB-Engines 每月更新，使用当月1日作为发布日期"""
+    @staticmethod
+    def _get_ranking_update_date() -> datetime:
+        """DB-Engines 每月更新,使用当月1日作为发布日期"""
 
-        now = datetime.utcnow()
-        return datetime(now.year, now.month, 1)
+        now = datetime.now(timezone.utc)
+        return datetime(now.year, now.month, 1, tzinfo=timezone.utc)

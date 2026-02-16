@@ -10,7 +10,7 @@ import time
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, List
+from typing import Any
 
 import httpx
 
@@ -156,7 +156,7 @@ async def main() -> None:
         TwitterCollector(settings=settings),
     ]
 
-    all_candidates: List[RawCandidate] = []
+    all_candidates: list[RawCandidate] = []
     for collector in collectors:
         try:
             candidates = await collector.collect()
@@ -175,7 +175,7 @@ async def main() -> None:
 
     # 1. 本次采集内部去重（保留第一次出现）
     seen_urls_this_batch: set[str] = set()
-    internal_deduplicated: List[RawCandidate] = []
+    internal_deduplicated: list[RawCandidate] = []
     for candidate in all_candidates:
         url_key = canonicalize_url(candidate.url)
         if url_key and url_key not in seen_urls_this_batch:
@@ -206,7 +206,7 @@ async def main() -> None:
         if dedup_time >= now - timedelta(days=window_days):
             recent_urls_by_source.setdefault(source_value, set()).add(url_key)
 
-    deduplicated: List[RawCandidate] = []
+    deduplicated: list[RawCandidate] = []
     duplicate_count = 0
     for c in internal_deduplicated:
         window_days = constants.DEDUP_LOOKBACK_DAYS_BY_SOURCE.get(
@@ -365,14 +365,14 @@ def _configure_logging(settings: Settings) -> None:
 
 
 def _filter_by_source_threshold(
-    candidates: List[ScoredCandidate],
-) -> tuple[List[ScoredCandidate], int]:
+    candidates: list[ScoredCandidate],
+) -> tuple[list[ScoredCandidate], int]:
     """按来源感知阈值过滤候选，不同来源有不同的入库门槛。
 
     Returns:
         (qualified_candidates, filtered_count)
     """
-    qualified: List[ScoredCandidate] = []
+    qualified: list[ScoredCandidate] = []
     filtered_count = 0
 
     for c in candidates:
@@ -410,18 +410,15 @@ def _apply_freshness_boost(candidate: ScoredCandidate) -> ScoredCandidate:
     if publish_dt.tzinfo is None:
         publish_dt = publish_dt.replace(tzinfo=timezone.utc)
 
-    now = datetime.now(tz=publish_dt.tzinfo)
-    days = (now - publish_dt).days
+    days = (datetime.now(tz=publish_dt.tzinfo) - publish_dt).days
 
-    boost = 0.0
     if days <= 7:
         boost = constants.FRESHNESS_BOOST_7D
     elif days <= 14:
         boost = constants.FRESHNESS_BOOST_14D
     elif days <= 30:
         boost = constants.FRESHNESS_BOOST_30D
-
-    if boost <= 0:
+    else:
         return candidate
 
     boosted_total = min(10.0, candidate.total_score + boost)
@@ -438,11 +435,11 @@ def _apply_freshness_boost(candidate: ScoredCandidate) -> ScoredCandidate:
 
 
 def _filter_by_relevance_floor(
-    candidates: List[ScoredCandidate],
-) -> List[ScoredCandidate]:
+    candidates: list[ScoredCandidate],
+) -> list[ScoredCandidate]:
     """过滤相关性低于硬下限的候选，避免低相关噪声入库。"""
 
-    filtered: List[ScoredCandidate] = []
+    filtered: list[ScoredCandidate] = []
     dropped = 0
     for candidate in candidates:
         if candidate.relevance_score >= constants.RELEVANCE_HARD_FLOOR:
@@ -494,25 +491,17 @@ def _apply_recency_domain_floor(candidate: ScoredCandidate) -> ScoredCandidate:
 
     # 下限保护（HuggingFace 更高，其他权威源使用基线）
     if source == "huggingface":
-        candidate.activity_score = max(
-            candidate.activity_score, constants.HF_FLOOR_ACTIVITY
-        )
-        candidate.reproducibility_score = max(
-            candidate.reproducibility_score, constants.HF_FLOOR_REPRODUCIBILITY
-        )
-        candidate.license_score = max(
-            candidate.license_score, constants.HF_FLOOR_LICENSE
-        )
+        floor_act = constants.HF_FLOOR_ACTIVITY
+        floor_rep = constants.HF_FLOOR_REPRODUCIBILITY
+        floor_lic = constants.HF_FLOOR_LICENSE
     else:
-        candidate.activity_score = max(
-            candidate.activity_score, constants.AUTHORITY_FLOOR_ACTIVITY
-        )
-        candidate.reproducibility_score = max(
-            candidate.reproducibility_score, constants.AUTHORITY_FLOOR_REPRODUCIBILITY
-        )
-        candidate.license_score = max(
-            candidate.license_score, constants.AUTHORITY_FLOOR_LICENSE
-        )
+        floor_act = constants.AUTHORITY_FLOOR_ACTIVITY
+        floor_rep = constants.AUTHORITY_FLOOR_REPRODUCIBILITY
+        floor_lic = constants.AUTHORITY_FLOOR_LICENSE
+
+    candidate.activity_score = max(candidate.activity_score, floor_act)
+    candidate.reproducibility_score = max(candidate.reproducibility_score, floor_rep)
+    candidate.license_score = max(candidate.license_score, floor_lic)
 
     # 若已有新鲜度加权(custom_total_score)未设或偏低，则用下限重算
     weights = constants.SCORE_WEIGHTS

@@ -6,7 +6,7 @@ import asyncio
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -47,7 +47,7 @@ class SemanticScholarCollector:
             if isinstance(result, BaseException):
                 logger.error("Semantic Scholar API任务失败(%s): %s", venue, result)
                 continue
-            for candidate in cast(List[RawCandidate], result):
+            for candidate in result:
                 paper_id = candidate.raw_metadata.get("paper_id")
                 if paper_id and paper_id in seen_ids:
                     continue
@@ -98,8 +98,6 @@ class SemanticScholarCollector:
             item.get("name") for item in paper.get("authors", []) if item.get("name")
         ]
 
-        # Phase 6字段提取
-        # paper_url: Semantic Scholar论文URL (与url相同)
         paper_url = paper.get("url")
 
         fields_of_study = paper.get("fieldsOfStudy") or []
@@ -122,7 +120,7 @@ class SemanticScholarCollector:
             abstract=paper.get("abstract"),
             authors=authors or None,
             publish_date=publish_date,
-            paper_url=paper_url,  # Phase 6: 论文URL（Semantic Scholar提供）
+            paper_url=paper_url,
             raw_metadata=raw_metadata,
         )
 
@@ -147,9 +145,7 @@ class SemanticScholarCollector:
         return None
 
     def _build_headers(self) -> Dict[str, str]:
-        """统一构建API请求头"""
-
-        return {
-            "x-api-key": self.api_key or "",
-            "Accept": "application/json",
-        }
+        headers: Dict[str, str] = {"Accept": "application/json"}
+        if self.api_key:
+            headers["x-api-key"] = self.api_key
+        return headers

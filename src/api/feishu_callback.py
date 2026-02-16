@@ -16,7 +16,7 @@ import asyncio
 import hashlib
 import json
 import logging
-from typing import Any, Dict
+from typing import Any
 
 from flask import Flask, jsonify, request  # type: ignore[import-not-found]
 
@@ -138,7 +138,7 @@ def feishu_callback():
         )
 
 
-async def handle_approve_candidate(candidate_url: str, user_id: str) -> Dict[str, Any]:
+async def handle_approve_candidate(candidate_url: str, user_id: str) -> dict[str, Any]:
     """处理"加入候选池"操作
 
     流程:

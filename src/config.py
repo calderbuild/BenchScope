@@ -181,7 +181,6 @@ def _get_env(key: str, default: Optional[str] = None) -> str:
     return value
 
 
-# @lru_cache(maxsize=1)  # 临时禁用缓存，避免环境变量更新后读取旧值
 def get_settings() -> Settings:
     """构建全局配置实例,使用缓存避免重复解析"""
 

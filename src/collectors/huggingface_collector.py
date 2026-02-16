@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, List, Optional
 
 import httpx
@@ -16,7 +16,6 @@ from src.models import RawCandidate
 logger = logging.getLogger(__name__)
 
 HF_DATASETS_EXPAND_FIELDS: tuple[str, ...] = (
-    # P15: 显式请求必要字段，避免API默认字段不足导致过滤全为空
     "downloads",
     "tags",
     "lastModified",
@@ -32,7 +31,6 @@ class HuggingFaceCollector:
         self.settings = settings or get_settings()
         self.cfg = self.settings.sources.huggingface
         self.api_url = self.cfg.api_url or constants.HUGGINGFACE_DATASETS_API_URL
-        # P15: 添加httpx client超时配置（避免默认超时过短导致频繁失败）
         self.http_client = httpx.AsyncClient(
             timeout=httpx.Timeout(self.cfg.timeout_seconds),
             headers=self._build_headers(),
@@ -46,8 +44,6 @@ class HuggingFaceCollector:
         return headers
 
     async def aclose(self) -> None:
-        """确保HTTP client正确关闭（P15: 避免连接泄露）"""
-
         if not self.http_client.is_closed:
             await self.http_client.aclose()
 
@@ -71,7 +67,6 @@ class HuggingFaceCollector:
             logger.info("HuggingFace采集完成,候选数%s", len(candidates))
             return candidates
         except httpx.TimeoutException as exc:
-            # P15: 超时异常单独处理，提供更详细的日志
             logger.error(
                 "HuggingFace采集超时: %s, 超时配置=%s秒",
                 exc,
@@ -79,7 +74,6 @@ class HuggingFaceCollector:
             )
             return []
         except httpx.NetworkError as exc:
-            # P15: 网络错误单独处理
             logger.error(
                 "HuggingFace网络错误: %s, 请检查网络连接或HuggingFace服务状态, 超时配置=%s秒",
                 exc,
@@ -106,13 +100,11 @@ class HuggingFaceCollector:
             candidate = self._to_candidate(payload)
             if not candidate:
                 continue
-            # 图片功能已移除
-            candidate.hero_image_url = None
             candidates.append(candidate)
         return candidates
 
     async def _fetch_datasets(self) -> List[dict[str, Any]]:
-        """通过HuggingFace官方API搜索数据集并合并去重（P15: 增强网络稳定性）"""
+        """通过HuggingFace API搜索数据集并合并去重"""
 
         all_datasets: List[dict[str, Any]] = []
         seen_ids: set[str] = set()
@@ -131,7 +123,7 @@ class HuggingFaceCollector:
         return all_datasets
 
     async def _fetch_datasets_by_keyword(self, keyword: str) -> List[dict[str, Any]]:
-        """按关键词搜索数据集（P15: 含超时与重试）"""
+        """按关键词搜索数据集"""
 
         params: dict[str, Any] = {
             "search": keyword,
@@ -148,7 +140,7 @@ class HuggingFaceCollector:
         return [item for item in payload if isinstance(item, dict)]
 
     async def _get_with_retry(self, params: dict[str, Any]) -> httpx.Response:
-        """带重试的GET请求（P15: 网络抖动/瞬断时提高成功率）"""
+        """带重试的GET请求"""
 
         last_exc: Exception | None = None
         for attempt in range(1, constants.HUGGINGFACE_HTTP_MAX_RETRIES + 1):
@@ -181,8 +173,6 @@ class HuggingFaceCollector:
             return dataset
         if hasattr(dataset, "to_dict"):
             return dataset.to_dict()
-        if hasattr(dataset, "dict"):
-            return dataset.dict()
         return getattr(dataset, "__dict__", {})
 
     def _is_benchmark_dataset(self, data: dict[str, Any]) -> bool:
@@ -201,19 +191,13 @@ class HuggingFaceCollector:
         return any(kw in field for kw in keywords for field in haystacks if field)
 
     def _to_candidate(self, data: dict[str, Any]) -> RawCandidate | None:
-        """将数据集信息转换为内部模型
-
-        注意：不对发布时间进行过滤
-        原因：优质Benchmark数据集即使发布时间较早也有价值
-        过滤依据：下载量 + 关键词匹配（在_is_benchmark_dataset中实现）
-        """
+        """将数据集信息转换为内部模型（不过滤发布时间，优质数据集不受时间限制）"""
 
         dataset_id = data.get("id") or data.get("_id")
         if not dataset_id:
             return None
 
         summary = self._extract_summary(data)
-        # 安全访问嵌套字典：cardData可能为None
         card_data = data.get("cardData") or data.get("card_data") or {}
         authors_field = card_data.get("authors")
         authors: Optional[List[str]] = None
@@ -227,11 +211,6 @@ class HuggingFaceCollector:
             or data.get("lastModifiedDate")
         )
 
-        # 不再过滤发布时间 - 让优质数据集不受时间限制
-        # 时间过滤更适合GitHub（关注活跃维护）和arXiv（关注最新研究）
-
-        # Phase 6字段提取
-        # task_type: 从tags中提取task_categories (如"text-generation", "question-answering")
         tags = data.get("tags") or []
         task_tags = [t for t in tags if t.startswith("task_categories:")]
         task_type = task_tags[0].replace("task_categories:", "") if task_tags else None
@@ -249,7 +228,7 @@ class HuggingFaceCollector:
             authors=authors,
             publish_date=publish_date,
             dataset_url=f"https://huggingface.co/datasets/{dataset_id}",
-            task_type=task_type,  # Phase 6: 任务类型（从tags提取）
+            task_type=task_type,
             raw_metadata=raw_metadata,
         )
 
@@ -264,36 +243,21 @@ class HuggingFaceCollector:
 
     @staticmethod
     def _parse_datetime(value: str | int | datetime | None) -> datetime | None:
-        """解析多种格式的时间戳
+        """解析时间戳：支持 ISO 8601 字符串、Unix 时间戳、datetime 对象"""
 
-        支持:
-        - ISO 8601字符串 ("2024-11-13T12:00:00Z")
-        - Unix时间戳 (整数)
-        - datetime对象 (直接返回)
-        """
         if not value:
             return None
-
-        # 已经是datetime对象
         if isinstance(value, datetime):
             return value
-
-        # Unix时间戳（整数）
         if isinstance(value, int):
             try:
                 return datetime.fromtimestamp(value, tz=timezone.utc)
             except (ValueError, OSError):
                 return None
-
-        # ISO 8601字符串
         if isinstance(value, str):
             try:
                 return datetime.fromisoformat(value.replace("Z", "+00:00"))
             except ValueError:
                 return None
-
         return None
 
-    def _is_within_lookback(self, publish_date: datetime) -> bool:
-        now = datetime.now(timezone.utc)
-        return now - publish_date <= timedelta(days=constants.HUGGINGFACE_LOOKBACK_DAYS)

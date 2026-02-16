@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional
 
 import httpx
 from bs4 import BeautifulSoup
@@ -96,7 +96,7 @@ class TechEmpowerCollector:
             uuid_attr = row.get("data-uuid")
             if not uuid_attr:
                 continue
-            uuid = cast(str, uuid_attr)
+            uuid = str(uuid_attr)
 
             cells = row.find_all("td")
             env_text = cells[0].get_text(" ", strip=True) if cells else ""

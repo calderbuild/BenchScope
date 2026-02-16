@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Dict, List, Literal, Optional
+from typing import Literal, Optional
 
 from src.common import constants
 
@@ -29,7 +29,7 @@ class RawCandidate:
     url: str
     source: SourceType
     abstract: Optional[str] = None
-    authors: Optional[List[str]] = None
+    authors: Optional[list[str]] = None
     publish_date: Optional[datetime] = None
     github_stars: Optional[int] = None
     github_url: Optional[str] = None
@@ -37,19 +37,19 @@ class RawCandidate:
     hero_image_url: Optional[str] = None  # Phase 9: 图片原始URL
     hero_image_key: Optional[str] = None  # Phase 9: 飞书image_key (已废弃)
     # Phase 8新增：采集阶段粗提取的元数据
-    raw_metrics: Optional[List[str]] = None  # 原始指标文本
-    raw_baselines: Optional[List[str]] = None  # 原始baseline文本
+    raw_metrics: Optional[list[str]] = None  # 原始指标文本
+    raw_baselines: Optional[list[str]] = None  # 原始baseline文本
     raw_authors: Optional[str] = None  # 原始作者字符串
     raw_institutions: Optional[str] = None  # 原始机构字符串
     raw_dataset_size: Optional[str] = None  # 原始数据规模描述
 
-    raw_metadata: Dict[str, str] = field(default_factory=dict)
+    raw_metadata: dict[str, str] = field(default_factory=dict)
 
     # Phase 6 新增字段（从采集器直接提取）
     paper_url: Optional[str] = None  # 论文URL（arXiv/SemanticScholar自动填充）
     task_type: Optional[str] = None  # 任务类型（从README/metadata提取）
     license_type: Optional[str] = None  # License类型（GitHub API返回）
-    evaluation_metrics: Optional[List[str]] = None  # 评估指标（从摘要/README提取）
+    evaluation_metrics: Optional[list[str]] = None  # 评估指标（从摘要/README提取）
     reproduction_script_url: Optional[str] = None  # 复现脚本链接（从README提取）
 
 
@@ -62,16 +62,16 @@ class ScoredCandidate:
     url: str
     source: SourceType
     abstract: Optional[str] = None
-    authors: Optional[List[str]] = None
+    authors: Optional[list[str]] = None
     publish_date: Optional[datetime] = None
     github_stars: Optional[int] = None
     github_url: Optional[str] = None
     dataset_url: Optional[str] = None
     hero_image_url: Optional[str] = None
     hero_image_key: Optional[str] = None  # 已废弃
-    raw_metadata: Dict[str, str] = field(default_factory=dict)
-    raw_metrics: Optional[List[str]] = None
-    raw_baselines: Optional[List[str]] = None
+    raw_metadata: dict[str, str] = field(default_factory=dict)
+    raw_metrics: Optional[list[str]] = None
+    raw_baselines: Optional[list[str]] = None
     raw_authors: Optional[str] = None
     raw_institutions: Optional[str] = None
     raw_dataset_size: Optional[str] = None
@@ -104,7 +104,7 @@ class ScoredCandidate:
     # Phase 6 新增字段
     paper_url: Optional[str] = None  # 论文URL (独立于GitHub URL)
     reproduction_script_url: Optional[str] = None  # 复现脚本URL
-    evaluation_metrics: Optional[List[str]] = (
+    evaluation_metrics: Optional[list[str]] = (
         None  # 评估指标列表 (如["Accuracy", "F1"])
     )
     task_type: Optional[str] = None  # 任务类型 (如"Code Generation", "QA")
@@ -112,8 +112,8 @@ class ScoredCandidate:
 
     # Phase 8新增：LLM抽取字段
     task_domain: Optional[str] = None
-    metrics: Optional[List[str]] = None
-    baselines: Optional[List[str]] = None
+    metrics: Optional[list[str]] = None
+    baselines: Optional[list[str]] = None
     institution: Optional[str] = None
     dataset_size: Optional[int] = None
     dataset_size_description: Optional[str] = None

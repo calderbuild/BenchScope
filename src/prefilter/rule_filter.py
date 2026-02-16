@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from collections import Counter
 from datetime import datetime, timezone
-from typing import List
 
 from src.common import constants
 from src.models import RawCandidate
@@ -167,7 +166,7 @@ def _looks_like_algo_paper(candidate: RawCandidate) -> bool:
 
     text = f"{candidate.title} {(candidate.abstract or '')}".lower()
 
-    has_algo_phrase = _contains_any(text, constants.ALGO_METHOD_PHRASES_EXTENDED)
+    has_algo_phrase = _contains_any(text, constants.ALGO_METHOD_PHRASES)
     has_benchmark_signal = _contains_any(text, constants.BENCHMARK_DATASET_KEYWORDS)
     return has_algo_phrase and not has_benchmark_signal
 
@@ -179,20 +178,9 @@ def _looks_like_technical_report(candidate: RawCandidate) -> bool:
     has_tech_report_pattern = _contains_any(
         title_lower, constants.TECHNICAL_REPORT_PATTERNS
     )
-    has_model_name = _contains_any(title_lower, constants.MODEL_RELEASE_KEYWORDS)
     has_benchmark_signal = _contains_any(title_lower, constants.BENCHMARK_TITLE_SIGNALS)
 
-    if has_tech_report_pattern and not has_benchmark_signal:
-        return True
-
-    if (
-        has_model_name
-        and "technical report" in title_lower
-        and not has_benchmark_signal
-    ):
-        return True
-
-    return False
+    return has_tech_report_pattern and not has_benchmark_signal
 
 
 def _looks_like_non_mgx_application(candidate: RawCandidate) -> bool:
@@ -232,7 +220,7 @@ def prefilter(candidate: RawCandidate) -> bool:
     return passed
 
 
-def prefilter_batch(candidates: List[RawCandidate]) -> List[RawCandidate]:
+def prefilter_batch(candidates: list[RawCandidate]) -> list[RawCandidate]:
     """批量预筛选"""
 
     if not candidates:
@@ -240,7 +228,7 @@ def prefilter_batch(candidates: List[RawCandidate]) -> List[RawCandidate]:
 
     reason_stats: Counter[str] = Counter()
     source_stats: dict[str, dict[str, int]] = {}  # 按来源统计输入/输出
-    filtered: List[RawCandidate] = []
+    filtered: list[RawCandidate] = []
 
     for candidate in candidates:
         source = candidate.source
@@ -255,16 +243,12 @@ def prefilter_batch(candidates: List[RawCandidate]) -> List[RawCandidate]:
             source_stats[source]["output"] += 1
 
     rate = 100 * (1 - len(filtered) / len(candidates))
-    # 只输出被过滤的主要原因，避免日志过长
-    drop_reasons = {
-        k: v for k, v in reason_stats.items() if k not in {"pass"} and v > 0
-    }
+    drop_reasons = {k: v for k, v in reason_stats.items() if k != "pass" and v > 0}
     reason_text = (
         ", ".join(
             f"{k}:{v}" for k, v in sorted(drop_reasons.items(), key=lambda x: -x[1])
         )
-        if drop_reasons
-        else "无"
+        or "无"
     )
 
     logger.info(

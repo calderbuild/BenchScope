@@ -18,9 +18,7 @@ ARXIV_PDF_PRIMARY_BASE: Final[str] = "https://arxiv.org/pdf"
 ARXIV_PDF_TIMEOUT_SECONDS: Final[int] = 30
 ARXIV_PDF_HTTP_MAX_RETRIES: Final[int] = 2
 ARXIV_PDF_HTTP_RETRY_DELAY_SECONDS: Final[float] = 5.0
-ARXIV_PDF_CACHE_DIR: Final[str] = "/tmp/arxiv_pdf_cache"  # PDF缓存目录
-ARXIV_IMAGE_CACHE_PREFIX: Final[str] = "arxiv_pdf_image:"
-ARXIV_IMAGE_CONVERT_DPI: Final[int] = 150  # pdf2image渲染DPI
+ARXIV_PDF_CACHE_DIR: Final[str] = "/tmp/arxiv_pdf_cache"
 PDF_SECTION_P1_CONFIGS: Final[list[tuple[str, list[str], int]]] = [
     ("introduction", ["introduction", "background", "motivation"], 2000),
     ("method", ["method", "approach", "methodology", "design", "framework"], 3000),
@@ -32,7 +30,6 @@ PDF_SECTION_P2_CONFIGS: Final[list[tuple[str, list[str], int]]] = [
     ("conclusion", ["conclusion", "discussion", "future work", "summary"], 2000),
 ]
 PDF_MIN_P1_SECTIONS: Final[int] = 2
-PDF_MIN_P2_SECTIONS: Final[int] = 1
 
 # ---- Collector 配置 ----
 ARXIV_MAX_RESULTS: Final[int] = 50
@@ -181,7 +178,6 @@ GITHUB_README_EXCLUDED_KEYWORDS: Final[list[str]] = [
 ]
 GITHUB_LOOKBACK_DAYS: Final[int] = 30  # 30天窗口，新Benchmark创建频率低
 GITHUB_METADATA_TIMEOUT_SECONDS: Final[float] = 5.0
-GITHUB_METADATA_MAX_RETRIES: Final[int] = 1
 
 # Semantic Scholar配置
 SEMANTIC_SCHOLAR_LOOKBACK_YEARS: Final[int] = 2
@@ -207,7 +203,6 @@ SEMANTIC_SCHOLAR_MAX_RESULTS: Final[int] = 100
 SEMANTIC_SCHOLAR_TIMEOUT_SECONDS: Final[int] = 15
 
 # HELM配置
-HELM_CONFIG_URL: Final[str] = "https://crfm.stanford.edu/helm/classic/latest/config.js"
 HELM_BASE_PAGE: Final[str] = "https://crfm.stanford.edu/helm/classic/latest/"
 HELM_STORAGE_BASE: Final[str] = (
     "https://storage.googleapis.com/crfm-helm-public/benchmark_output"
@@ -244,20 +239,6 @@ HELM_EXCLUDED_SCENARIOS: Final[list[str]] = [
     "image",
     "vision",
     "video",
-]
-
-# ---- Benchmark 关键词 ----
-BENCHMARK_KEYWORDS: Final[list[str]] = [
-    "benchmark",
-    "evaluation",
-    "leaderboard",
-    "dataset",
-    "agent",
-    "coding",
-    "reasoning",
-    "tool use",
-    "multi-agent",
-    "code generation",
 ]
 
 HUGGINGFACE_DATASETS_API_URL: Final[str] = "https://huggingface.co/api/datasets"
@@ -316,7 +297,6 @@ DBENGINES_TIMEOUT_SECONDS: Final[int] = 15
 DBENGINES_MAX_RESULTS: Final[int] = 50
 
 # ---- Prefilter 配置 ----
-PREFILTER_SIMILARITY_THRESHOLD: Final[float] = 0.9
 PREFILTER_MIN_GITHUB_STARS: Final[int] = 30  # 从10提高到30，过滤低质量仓库
 PREFILTER_MIN_README_LENGTH: Final[int] = 500
 PREFILTER_RECENT_DAYS: Final[int] = 90
@@ -371,7 +351,7 @@ PREFILTER_REQUIRED_KEYWORDS: Final[list[str]] = [
     "framework",
     "server",
     "software benchmark",
-    # ====== Reasoning（新增）======
+    # ====== Reasoning======
     "reasoning",
     "logic",
     "logical reasoning",
@@ -382,7 +362,7 @@ PREFILTER_REQUIRED_KEYWORDS: Final[list[str]] = [
     "mathematics",
     "mathematical reasoning",
     "problem solving",
-    # ====== Knowledge（新增）======
+    # ====== Knowledge======
     "knowledge",
     "question answering",
     "qa",
@@ -390,7 +370,7 @@ PREFILTER_REQUIRED_KEYWORDS: Final[list[str]] = [
     "fact checking",
     "factual",
     "world knowledge",
-    # ====== Multimodal（新增）======
+    # ====== Multimodal======
     "multimodal",
     "vision-language",
     "image-text",
@@ -399,7 +379,7 @@ PREFILTER_REQUIRED_KEYWORDS: Final[list[str]] = [
     "video",
     "audio",
     "speech",
-    # ====== Language Understanding（新增）======
+    # ====== Language Understanding======
     "language",
     "nlp",
     "natural language",
@@ -408,7 +388,7 @@ PREFILTER_REQUIRED_KEYWORDS: Final[list[str]] = [
     "language understanding",
     "comprehension",
     "reading comprehension",
-    # ====== Task相关（新增）======
+    # ====== Task相关======
     "task",
     "tasks",
     "challenge",
@@ -449,10 +429,9 @@ PREFILTER_EXCLUDED_KEYWORDS: Final[list[str]] = [
     "cursor mcp",
 ]
 
-# 额外的工具/协议判定关键词（用于GitHub/协议类仓库识别）
-# P10优化：大幅扩展关键词覆盖，避免工具库被误判为Benchmark
+# 工具/协议判定关键词（用于GitHub/协议类仓库识别）
 TOOL_LIKE_KEYWORDS: Final[list[str]] = [
-    # 现有关键词保持不变
+    # 通用
     "sdk",
     "framework",
     "toolkit",
@@ -469,30 +448,30 @@ TOOL_LIKE_KEYWORDS: Final[list[str]] = [
     "agent framework",
     "model context protocol",
     "mcp",
-    # P10新增：通用工具词
+    # 通用工具词
     "library",
     "package",
     "utility",
     "helper",
     "module",
-    # P10新增：文本处理类
+    # 文本处理类
     "tokenizer",
     "splitter",
     "parser",
     "converter",
     "processor",
-    # P10新增：API/网络类
+    # API/网络类
     "client",
     "wrapper",
     "binding",
     "connector",
     "adapter",
-    # P10新增：数据处理类
+    # 数据处理类
     "loader",
     "extractor",
     "transformer",
     "serializer",
-    # P10新增：开发工具类
+    # 开发工具类
     "generator",
     "builder",
     "compiler",
@@ -500,7 +479,7 @@ TOOL_LIKE_KEYWORDS: Final[list[str]] = [
     "formatter",
 ]
 
-# P10新增：工具库否定模式（摘要中的工具声明短语）
+# 工具库否定模式（摘要中的工具声明短语）
 TOOL_NEGATIVE_PATTERNS: Final[list[str]] = [
     "this is a library",
     "this is a tool",
@@ -539,33 +518,10 @@ BENCHMARK_DATASET_KEYWORDS: Final[list[str]] = [
     "benchmark dataset",
 ]
 
-# 判定“算法/系统方法论”的常见短语（若缺少数据集/benchmark特征则视为算法论文）
-ALGO_METHOD_PHRASES: Final[list[str]] = [
-    "we propose a",
-    "we propose an",
-    "we introduce a",
-    "we present a",
-    "we design a",
-    "a novel approach",
-    "a new approach",
-    "a novel framework",
-    "a new framework",
-    "a novel method",
-    "a new method",
-    "our method",
-    "our framework",
-    "our approach",
-]
-
 # ---- Scorer 配置 ----
-LLM_DEFAULT_MODEL: Final[str] = (
-    "gpt-4o-mini"  # 成本优化: $8/天→$0.5/天 (-94%), 评分质量足够用于预筛选
-)
-LLM_MODEL: Final[str] = LLM_DEFAULT_MODEL
+LLM_DEFAULT_MODEL: Final[str] = "gpt-4o-mini"
 LLM_TIMEOUT_SECONDS: Final[int] = 30
-LLM_CACHE_TTL_SECONDS: Final[int] = 7 * 24 * 3600
 LLM_MAX_RETRIES: Final[int] = 3
-LLM_COMPLETION_MAX_TOKENS: Final[int] = 2000  # 提高max_tokens确保评分依据完整详细
 LLM_REASONING_MIN_CHARS: Final[int] = 100  # 放宽至100字符，减少频繁纠偏
 LLM_BACKEND_REASONING_MIN_CHARS: Final[int] = 150  # 后端专项推理最小字符数
 LLM_OVERALL_REASONING_MIN_CHARS: Final[int] = 150  # overall_reasoning最小字符数
@@ -575,15 +531,6 @@ SCORE_CONCURRENCY: Final[int] = 50  # GPT-4o速率限制高，充分利用并发
 REDIS_DEFAULT_URL: Final[str] = "redis://localhost:6379/0"
 REDIS_TTL_DAYS: Final[int] = 7
 REDIS_KEY_PREFIX: Final[str] = "benchscope:"
-RULE_SCORE_THRESHOLDS: Final[dict[int, int]] = {
-    1000: 8,
-    500: 6,
-    100: 4,
-}
-RULE_SCORE_MIN: Final[int] = 2
-PRIORITY_HIGH_THRESHOLD: Final[int] = 40
-PRIORITY_MEDIUM_THRESHOLD: Final[int] = 30
-
 # 评分阈值
 MIN_TOTAL_SCORE: Final[float] = 6.0  # 低于6分不入库
 SCORE_WEIGHTS: Final[dict[str, float]] = {
@@ -644,8 +591,7 @@ HF_FLOOR_LICENSE: Final[float] = 4.5
 
 # ---- 存储与通知 ----
 FEISHU_BATCH_SIZE: Final[int] = 20
-FEISHU_RATE_LIMIT_SECONDS: Final[float] = 0.6
-FEISHU_RATE_LIMIT_DELAY: Final[float] = FEISHU_RATE_LIMIT_SECONDS
+FEISHU_RATE_LIMIT_DELAY: Final[float] = 0.6
 FEISHU_HTTP_TIMEOUT_SECONDS: Final[int] = 15
 FEISHU_HTTP_MAX_RETRIES: Final[int] = 5  # 从3增加到5次，应对429限流
 FEISHU_HTTP_RETRY_DELAY_SECONDS: Final[float] = 2.0  # 从1.5增加到2秒
@@ -654,7 +600,6 @@ FEISHU_HTTP_429_EXTRA_DELAY_SECONDS: Final[float] = 10.0  # 新增：429错误�
 FEISHU_BENCH_TABLE_URL: Final[str] = (
     "https://deepwisdom.feishu.cn/base/SbIibGBIWayQncslz5kcYMnrnGf?table=tblG5cMwubU6AJcV&view=vewUfT4GO6"
 )
-FEISHU_MEDIUM_TOPK: Final[int] = 5
 FEISHU_REASONING_PREVIEW_LENGTH: Final[int] = 1500  # 评分依据字段最大长度
 FEISHU_SOURCE_NAME_MAP: Final[dict[str, str]] = {
     "arxiv": "arXiv",
@@ -676,22 +621,10 @@ FEISHU_REQUIRED_FIELDS: Final[list[str]] = [
     "发布日期",
 ]
 
-# ---- 图片处理配置 ----
-IMAGE_MIN_SIZE_BYTES: Final[int] = 30 * 1024  # 30KB下限（GitHub og:image约40KB）
-IMAGE_MAX_SIZE_BYTES: Final[int] = 5 * 1024 * 1024  # 5MB上限，避免大文件拖慢
-IMAGE_MIN_WIDTH: Final[int] = 300  # 最小宽度限制，过滤徽标/小图标
-IMAGE_MIN_HEIGHT: Final[int] = 200
-IMAGE_DOWNLOAD_TIMEOUT_SECONDS: Final[int] = 5
-IMAGE_UPLOAD_TIMEOUT_SECONDS: Final[int] = 10
-IMAGE_CACHE_TTL_SECONDS: Final[int] = 30 * 24 * 3600  # 30天缓存
-IMAGE_CACHE_PREFIX: Final[str] = "feishu:img:"
-IMAGE_SUPPORTED_FORMATS: Final[list[str]] = ["JPEG", "PNG", "GIF", "BMP"]
-
 # 字符串截断长度
 TITLE_TRUNCATE_SHORT: Final[int] = 50  # 日志显示
 TITLE_TRUNCATE_MEDIUM: Final[int] = 60  # 摘要卡片
 TITLE_TRUNCATE_LONG: Final[int] = 150  # 详细卡片
-TITLE_TRUNCATE_CARD: Final[int] = 10_000  # 推送卡片标题不过滤，保留全量展示
 
 # 质量评级阈值
 QUALITY_EXCELLENT_THRESHOLD: Final[float] = 8.0
@@ -707,7 +640,6 @@ PREFILTER_MIN_ABSTRACT_LENGTH: Final[int] = 20
 
 SQLITE_DB_PATH: Final[str] = "fallback.db"
 SQLITE_RETENTION_DAYS: Final[int] = 7
-NOTIFY_TOP_K: Final[int] = 5
 
 # ---- 日志 ----
 LOG_FILE_NAME: Final[str] = "benchscope.log"
@@ -732,10 +664,6 @@ DEFAULT_TASK_DOMAIN: Final[str] = "Other"
 MAX_EXTRACTED_METRICS: Final[int] = 5
 MAX_EXTRACTED_BASELINES: Final[int] = 5
 MAX_EXTRACTED_AUTHORS: Final[int] = 5
-DATASET_SIZE_MULTIPLIERS: Final[dict[str, int]] = {
-    "k": 1_000,
-    "m": 1_000_000,
-}
 
 # ============================================================
 # 去重配置
@@ -752,8 +680,6 @@ DEDUP_LOOKBACK_DAYS_BY_SOURCE: Final[dict[str, int]] = {
 # ============================================================
 # 推送多样性与低优先精选配置
 # ============================================================
-FEISHU_PER_SOURCE_TOPK: Final[int] = 1  # 每个来源至少推送1条（中优摘要补齐）
-FEISHU_LOW_PICK_ENABLED: Final[bool] = True  # 是否开启低优先精选分区
 FEISHU_LOW_PICK_PER_SOURCE: Final[dict[str, int]] = {
     "arxiv": 2,
     "huggingface": 1,
@@ -780,11 +706,6 @@ CORE_DOMAINS: Final[list[str]] = [
 MAIN_RECOMMENDATION_LIMIT: Final[int] = 12  # 最新推荐区最多条目
 TASK_FILL_MIN_SCORE: Final[float] = 5.0  # 补位候选最低分（若无则放宽由调用方控制）
 TASK_FILL_PER_DOMAIN_LIMIT: Final[int] = 1
-TASK_FILL_SHOW_MISSING: Final[bool] = True
-# 论文来源评分折扣（后处理，用于平衡活跃度/复现性偏低）
-PAPER_ACTIVITY_DISCOUNT: Final[float] = 1.0  # 关闭论文活跃度折扣，防止非GitHub源被压分
-PAPER_REPRODUCIBILITY_DISCOUNT: Final[float] = 1.0  # 关闭论文复现性折扣
-PAPER_MGX_BONUS: Final[float] = 0.1  # MGX适配度加权
 PAPER_MIN_SCORE_FOR_LOW_PICK: Final[float] = 5.5  # 放宽门槛，避免全被过滤
 PAPER_MIN_RELEVANCE_FOR_LOW_PICK: Final[float] = 5.5
 PAPER_MAX_PUBLISH_DAYS_FOR_LOW_PICK: Final[int] = 10  # 放宽到10天，保留更多最新论文
@@ -890,9 +811,8 @@ MODEL_RELEASE_KEYWORDS: Final[list[str]] = [
     "internlm",
 ]
 
-# 扩展的算法方法短语
-ALGO_METHOD_PHRASES_EXTENDED: Final[list[str]] = [
-    # 现有短语保留
+# 算法方法短语（用于判定方法论论文）
+ALGO_METHOD_PHRASES: Final[list[str]] = [
     "we propose a",
     "we propose an",
     "we introduce a",
@@ -907,7 +827,6 @@ ALGO_METHOD_PHRASES_EXTENDED: Final[list[str]] = [
     "our method",
     "our framework",
     "our approach",
-    # 新增短语
     "a new model",
     "a novel model",
     "our model",

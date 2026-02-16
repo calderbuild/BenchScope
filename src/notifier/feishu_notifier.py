@@ -9,7 +9,7 @@ import hashlib
 import logging
 import time
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Optional
 
 import httpx
 
@@ -34,7 +34,7 @@ class FeishuNotifier:
         # 通知历史跟踪：已通知过的URL不再重复推送
         self.notification_history = NotificationHistory()
 
-    async def notify(self, candidates: List[ScoredCandidate]) -> None:
+    async def notify(self, candidates: list[ScoredCandidate]) -> None:
         """分层推送: 高优先级卡片 + 中优先级摘要"""
         if not self.webhook_url:
             logger.warning("未配置飞书Webhook,跳过通知")
@@ -187,12 +187,9 @@ class FeishuNotifier:
 
         # 退化使用作者列表的前两位，避免过长
         if candidate.authors:
-            if len(candidate.authors) == 1:
-                author_text = candidate.authors[0]
-            elif len(candidate.authors) == 2:
-                author_text = f"{candidate.authors[0]}, {candidate.authors[1]}"
-            else:
-                author_text = f"{candidate.authors[0]}, {candidate.authors[1]} et al."
+            author_text = ", ".join(candidate.authors[:2])
+            if len(candidate.authors) > 2:
+                author_text += " et al."
             if len(author_text) > 50:
                 author_text = author_text[:47] + "..."
             return f"作者: {author_text}"
@@ -228,7 +225,7 @@ class FeishuNotifier:
             publish_dt = publish_dt.replace(tzinfo=timezone.utc)
         return (datetime.now(tz=publish_dt.tzinfo) - publish_dt).days
 
-    def _collect_domains(self, candidates: List[ScoredCandidate]) -> set[str]:
+    def _collect_domains(self, candidates: list[ScoredCandidate]) -> set[str]:
         """收集已有任务领域，便于补位决策。"""
 
         domains: set[str] = set()
@@ -238,7 +235,7 @@ class FeishuNotifier:
                 domains.add(domain)
         return domains
 
-    def _dedup_by_url(self, items: List[ScoredCandidate]) -> List[ScoredCandidate]:
+    def _dedup_by_url(self, items: list[ScoredCandidate]) -> list[ScoredCandidate]:
         """按URL去重，保持顺序。"""
 
         seen: set[str] = set()
@@ -280,8 +277,8 @@ class FeishuNotifier:
         return False
 
     def _prefilter_for_push(
-        self, candidates: List[ScoredCandidate]
-    ) -> List[ScoredCandidate]:
+        self, candidates: list[ScoredCandidate]
+    ) -> list[ScoredCandidate]:
         """推送前过滤：最新优先、相关性兜底、任务域白名单、总量限额。
 
         规则：
@@ -301,7 +298,7 @@ class FeishuNotifier:
 
         allowed_domains = set(constants.TASK_DOMAIN_OPTIONS)
         core_domains = {"Coding", "Backend", "WebDev", "GUI"}
-        filtered: List[ScoredCandidate] = []
+        filtered: list[ScoredCandidate] = []
 
         for cand in candidates:
             # 相关性过滤
@@ -403,8 +400,8 @@ class FeishuNotifier:
         return filtered
 
     def _smart_filter_candidates(
-        self, candidates: List[ScoredCandidate]
-    ) -> tuple[List[ScoredCandidate], List[ScoredCandidate], List[ScoredCandidate]]:
+        self, candidates: list[ScoredCandidate]
+    ) -> tuple[list[ScoredCandidate], list[ScoredCandidate], list[ScoredCandidate]]:
         """按来源阈值、TopK与任务领域补位生成推送列表。"""
 
         if not candidates:
@@ -522,8 +519,8 @@ class FeishuNotifier:
 
     async def _send_medium_priority_summary(
         self,
-        candidates: List[ScoredCandidate],
-        low_candidates: Optional[List[ScoredCandidate]] = None,
+        candidates: list[ScoredCandidate],
+        low_candidates: Optional[list[ScoredCandidate]] = None,
         covered_domains: Optional[set[str]] = None,
     ) -> None:
         """发送中优摘要：两分区（最新推荐 + 任务域补位）。"""
@@ -617,55 +614,9 @@ class FeishuNotifier:
 
         await self._send_webhook(card)
 
-    def _build_low_pick_section(self, candidates: List[ScoredCandidate]) -> str:
-        """从low队列挑选最新且相关的论文/数据集，保证曝光"""
-
-        picks: list[str] = []
-        per_source_limits = constants.FEISHU_LOW_PICK_PER_SOURCE
-
-        grouped: dict[str, list[ScoredCandidate]] = {}
-        for cand in candidates:
-            if cand.priority != "low":
-                continue
-            source = (cand.source or "unknown").lower()
-            if source not in per_source_limits:
-                continue
-            if (
-                cand.publish_date
-                and (datetime.now() - cand.publish_date).days
-                > constants.PAPER_MAX_PUBLISH_DAYS_FOR_LOW_PICK
-            ):
-                continue
-            if cand.total_score < constants.PAPER_MIN_SCORE_FOR_LOW_PICK:
-                continue
-            if cand.relevance_score < constants.PAPER_MIN_RELEVANCE_FOR_LOW_PICK:
-                continue
-            grouped.setdefault(source, []).append(cand)
-
-        for source, items in grouped.items():
-            items = sorted(items, key=lambda x: x.total_score, reverse=True)
-            limit = per_source_limits.get(source, 0)
-            for cand in items[:limit]:
-                title = (
-                    cand.title[: constants.TITLE_TRUNCATE_MEDIUM] + "..."
-                    if len(cand.title) > constants.TITLE_TRUNCATE_MEDIUM
-                    else cand.title
-                )
-                source_name = self._format_source_name(cand.source)
-                date_str = (
-                    cand.publish_date.strftime("%Y-%m-%d")
-                    if cand.publish_date
-                    else "近期"
-                )
-                picks.append(
-                    f"- {source_name}: {title} （MGX {cand.relevance_score:.1f}, {date_str}） [查看详情]({self._primary_link(cand)})"
-                )
-
-        return "\n".join(picks)
-
     def _render_brief_items(
-        self, items: List[ScoredCandidate], tag: str | None = None
-    ) -> List[str]:
+        self, items: list[ScoredCandidate], tag: str | None = None
+    ) -> list[str]:
         """简洁行渲染，提升可扫读性。"""
 
         lines: list[str] = []
@@ -700,8 +651,8 @@ class FeishuNotifier:
 
     def _build_task_fill_section(
         self,
-        medium_candidates: List[ScoredCandidate],
-        low_candidates: List[ScoredCandidate],
+        medium_candidates: list[ScoredCandidate],
+        low_candidates: list[ScoredCandidate],
         covered_domains: Optional[set[str]] = None,
         allow_any_score: bool = False,
     ) -> str:
@@ -757,9 +708,9 @@ class FeishuNotifier:
 
     def _build_summary_card(
         self,
-        qualified: List[ScoredCandidate],
-        high_priority: List[ScoredCandidate],
-        medium_priority: List[ScoredCandidate],
+        qualified: list[ScoredCandidate],
+        high_priority: list[ScoredCandidate],
+        medium_priority: list[ScoredCandidate],
     ) -> dict:
         """构建统计摘要卡片 - 紧凑版"""
         avg_score = sum(c.total_score for c in qualified) / len(qualified)
@@ -870,16 +821,11 @@ class FeishuNotifier:
             f"**评分依据**\n{candidate.reasoning}"
         )
 
-        elements = []
-        elements.append(
-            {"tag": "div", "text": {"tag": "lark_md", "content": title_content}}
-        )
-        elements.append(
-            {"tag": "div", "text": {"tag": "lark_md", "content": detail_content}}
-        )
-        elements.append({"tag": "hr"})
-        elements.append({"tag": "action", "actions": actions})
-        elements.append(
+        elements = [
+            {"tag": "div", "text": {"tag": "lark_md", "content": title_content}},
+            {"tag": "div", "text": {"tag": "lark_md", "content": detail_content}},
+            {"tag": "hr"},
+            {"tag": "action", "actions": actions},
             {
                 "tag": "note",
                 "elements": [
@@ -888,8 +834,8 @@ class FeishuNotifier:
                         "content": f"BenchScope 情报员 | {datetime.now().strftime('%Y-%m-%d %H:%M')}",
                     }
                 ],
-            }
-        )
+            },
+        ]
 
         return {
             "msg_type": "interactive",
@@ -931,10 +877,8 @@ class FeishuNotifier:
             data = resp.json()
             if data.get("code") != 0:
                 raise RuntimeError(f"飞书Webhook返回错误: {data}")
-            if payload.get("msg_type") == "interactive":
-                logger.info("✅ 飞书卡片推送成功")
-            else:
-                logger.info("✅ 飞书文本推送成功")
+            msg_kind = "卡片" if payload.get("msg_type") == "interactive" else "文本"
+            logger.info("飞书%s推送成功", msg_kind)
 
     def _generate_signature(self, timestamp: int, secret: str) -> str:
         """生成飞书Webhook签名

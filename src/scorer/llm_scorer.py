@@ -16,10 +16,10 @@ import asyncio
 import hashlib
 import json
 import logging
-from typing import Any, Awaitable, Dict, List, Optional, Tuple, cast
+from datetime import datetime, timezone
+from typing import Any, Optional
 
 import redis.asyncio as redis
-from redis.asyncio import Redis as AsyncRedis
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
@@ -54,8 +54,26 @@ REASONING_FIELD_LABELS = {
 }
 
 
-# ==================== 全LLM统一评分Prompt ====================
-# 这是一个4000+ token的超详细prompt，涵盖MGX场景定义、评分标准、推理要求
+def _build_novelty_year_context(
+    reference_time: Optional[datetime] = None,
+) -> dict[str, int]:
+    """根据当前日期动态生成新颖性评分的年份档位，避免规则随年份过期。"""
+
+    now = reference_time or datetime.now(timezone.utc)
+    current_year = now.year
+    latest_year = current_year - 1
+    return {
+        "novelty_current_year": current_year,
+        "novelty_latest_year": latest_year,
+        "novelty_mid_start_year": latest_year - 1,
+        "novelty_mid_end_year": latest_year,
+        "novelty_old_start_year": latest_year - 2,
+        "novelty_old_end_year": latest_year - 1,
+        "novelty_example_year": latest_year,
+    }
+
+
+# 评分Prompt模板（涵盖MGX场景定义、评分标准、推理要求）
 UNIFIED_SCORING_PROMPT_TEMPLATE = """你是BenchScope的Benchmark情报分析专家，负责为MGX多智能体协作框架评估Benchmark候选项。
 
 === 第1部分：候选基础信息 ===
@@ -154,12 +172,13 @@ MGX是一个AI原生的多智能体协作框架（Vibe Coding），专注以下�
 
 【维度4: 新颖性 novelty_score】
 评分标准（**严格执行，不得随意打高分**）：
-- 10分: 2024+发布 + 全新任务类型（MGX从未评测过的场景）+ 填补行业空白
-- 8-9分: 2024+发布 + 在现有任务上有显著创新（新指标体系/新评测范式/新场景定义）
-- 6-7分: 2023-2024发布 + 对现有任务有小幅改进（数据规模扩大/领域扩展）
-- 4-5分: 2022-2023发布 + 成熟任务的标准变种
+- 10分: {novelty_latest_year}+发布 + 全新任务类型（MGX从未评测过的场景）+ 填补行业空白
+- 8-9分: {novelty_latest_year}+发布 + 在现有任务上有显著创新（新指标体系/新评测范式/新场景定义）
+- 6-7分: {novelty_mid_start_year}-{novelty_mid_end_year}发布 + 对现有任务有小幅改进（数据规模扩大/领域扩展）
+- 4-5分: {novelty_old_start_year}-{novelty_old_end_year}发布 + 成熟任务的标准变种
 - 2-3分: 常规任务 + 常规数据集 + 常规指标
 - 0-1分: 完全过时或无任何创新
+- 注：年份档位按当前日期自动滚动（当前年份：{novelty_current_year}年）
 
 **硬性约束**：
 - "更大规模"不等于创新，novelty_score≤6
@@ -174,7 +193,7 @@ MGX是一个AI原生的多智能体协作框架（Vibe Coding），专注以下�
 - 归纳新的任务设定、数据来源、评估指标或工具链，为何能补齐MGX短板
 - 若属于老任务但仍重要，解释其基线价值或覆盖范围
 - 给出MGX在采用该Benchmark后可获得的新增洞察
-- **字符计数示例**："该Benchmark发布于2025年3月，引入“多Agent分工+代码审阅”任务，相比HumanEval只测单轮生成，它额外考察沟通准确率和审阅反馈质量。指标方面新增交互轮次成功率，弥补MGX在协作编码评测上的空白。即便延续经典Pass@k，也通过高难度多文件项目提高区分度。"（≈190字符）
+- **字符计数示例**："该Benchmark发布于{novelty_example_year}年3月，引入“多Agent分工+代码审阅”任务，相比HumanEval只测单轮生成，它额外考察沟通准确率和审阅反馈质量。指标方面新增交互轮次成功率，弥补MGX在协作编码评测上的空白。即便延续经典Pass@k，也通过高难度多文件项目提高区分度。"（≈190字符）
 
 【维度5: MGX适配度 relevance_score】
 评分标准：
@@ -471,7 +490,6 @@ MGX是一个AI原生的多智能体协作框架（Vibe Coding），专注以下�
 """
 
 
-# ==================== Pydantic数据模型 ====================
 class UnifiedBenchmarkExtraction(BaseModel):
     """全LLM统一评分输出模型（26个字段）"""
 
@@ -506,17 +524,17 @@ class UnifiedBenchmarkExtraction(BaseModel):
 
     # 结构化字段
     task_domain: str  # 必填，不能是None
-    metrics: List[str] = Field(default_factory=list)
-    baselines: List[str] = Field(default_factory=list)
+    metrics: list[str] = Field(default_factory=list)
+    baselines: list[str] = Field(default_factory=list)
     institution: str  # 必填，不能是None
-    authors: List[str] = Field(default_factory=list)
+    authors: list[str] = Field(default_factory=list)
     dataset_size: Optional[int] = None
     dataset_size_description: str  # 必填
     task_type: str  # 必填
     license_type: str  # 必填
     paper_url: str = ""
     reproduction_script_url: str = ""
-    evaluation_metrics: List[str] = Field(default_factory=list)
+    evaluation_metrics: list[str] = Field(default_factory=list)
 
     @field_validator("backend_mgx_reasoning", "backend_engineering_reasoning")
     @classmethod
@@ -524,30 +542,29 @@ class UnifiedBenchmarkExtraction(BaseModel):
         """后端推理字段验证：如果后端评分>0，推理必须≥200字符"""
         data = info.data
         required = constants.LLM_BACKEND_REASONING_MIN_CHARS
-        needs_backend_reasoning = False
-        if data.get("backend_mgx_relevance", 0) > 0:
-            needs_backend_reasoning = True
-        if info.field_name == "backend_engineering_reasoning":
-            needs_backend_reasoning = needs_backend_reasoning or (
-                data.get("backend_engineering_value", 0) > 0
-            )
-        if needs_backend_reasoning and len(v) < required:
+        # 对应的评分字段名：backend_mgx_reasoning -> backend_mgx_relevance
+        score_field = {
+            "backend_mgx_reasoning": "backend_mgx_relevance",
+            "backend_engineering_reasoning": "backend_engineering_value",
+        }[info.field_name]
+        has_backend_score = data.get("backend_mgx_relevance", 0) > 0 or data.get(score_field, 0) > 0
+        if has_backend_score and len(v) < required:
             raise ValueError(f"后端推理字段必须≥{required}字符，当前{len(v)}字符")
         return v
 
 
-# ==================== LLM评分引擎 ====================
 class LLMScorer:
     """全LLM统一评分引擎（单次调用返回所有26个字段）"""
 
     def __init__(self) -> None:
         self.settings = get_settings()
         api_key = self.settings.openai.api_key
-        base_url = self.settings.openai.base_url
         self.client: Optional[AsyncOpenAI] = None
         if api_key:
-            self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-        self.redis_client: Optional[AsyncRedis] = None
+            self.client = AsyncOpenAI(
+                api_key=api_key, base_url=self.settings.openai.base_url
+            )
+        self.redis_client: Optional[redis.Redis] = None
 
     async def __aenter__(self) -> "LLMScorer":
         try:
@@ -556,8 +573,7 @@ class LLMScorer:
                 encoding="utf-8",
                 decode_responses=True,
             )
-            ping_future = cast(Awaitable[bool], self.redis_client.ping())
-            await ping_future
+            await self.redis_client.ping()
         except Exception as exc:  # noqa: BLE001
             logger.warning("Redis连接失败,将不使用缓存: %s", exc)
             self.redis_client = None
@@ -569,8 +585,9 @@ class LLMScorer:
             self.redis_client = None
 
     def _cache_key(self, candidate: RawCandidate) -> str:
-        """生成Redis缓存键（基于标题+URL的MD5）"""
-        key_str = f"v2:{candidate.title}:{candidate.url}"  # v2表示新版prompt
+        """生成Redis缓存键（基于标题+URL+年份的MD5，年份变化时缓存自动失效）"""
+        novelty_year = _build_novelty_year_context()["novelty_latest_year"]
+        key_str = f"v3:{novelty_year}:{candidate.title}:{candidate.url}"
         digest = hashlib.md5(key_str.encode(), usedforsecurity=False).hexdigest()
         return f"{constants.REDIS_KEY_PREFIX}unified_score:{digest}"
 
@@ -612,47 +629,28 @@ class LLMScorer:
 
         # 提取PDF增强内容
         raw_metadata = candidate.raw_metadata or {}
-        introduction_summary = (
-            raw_metadata.get("introduction_summary")
-            or "未提供（论文无Introduction章节或PDF解析失败）"
-        )
-        method_summary = (
-            raw_metadata.get("method_summary")
-            or "未提供（论文无Method章节或PDF解析失败）"
-        )
-        evaluation_summary = (
-            raw_metadata.get("evaluation_summary")
-            or "未提供（论文无Evaluation章节或PDF解析失败）"
-        )
-        dataset_summary = (
-            raw_metadata.get("dataset_summary")
-            or "未提供（论文无Dataset章节或PDF解析失败）"
-        )
-        baselines_summary = (
-            raw_metadata.get("baselines_summary")
-            or "未提供（论文无Baselines章节或PDF解析失败）"
-        )
-        conclusion_summary = (
-            raw_metadata.get("conclusion_summary")
-            or "未提供（论文无Conclusion章节或PDF解析失败）"
-        )
+        pdf_fallback = "未提供（论文无{section}章节或PDF解析失败）"
+        pdf_sections = {}
+        for section in [
+            "introduction",
+            "method",
+            "evaluation",
+            "dataset",
+            "baselines",
+            "conclusion",
+        ]:
+            key = f"{section}_summary"
+            pdf_sections[key] = raw_metadata.get(key) or pdf_fallback.format(
+                section=section.capitalize()
+            )
 
         # 原始提取数据
-        raw_metrics = (
-            ", ".join(candidate.raw_metrics or [])
-            if candidate.raw_metrics
-            else "未提取"
-        )
-        raw_baselines = (
-            ", ".join(candidate.raw_baselines or [])
-            if candidate.raw_baselines
-            else "未提取"
-        )
+        raw_metrics = ", ".join(candidate.raw_metrics) if candidate.raw_metrics else "未提取"
+        raw_baselines = ", ".join(candidate.raw_baselines) if candidate.raw_baselines else "未提取"
         raw_authors = candidate.raw_authors or (
-            ", ".join(candidate.authors or []) if candidate.authors else "未提取"
+            ", ".join(candidate.authors) if candidate.authors else "未提取"
         )
-        raw_institutions = candidate.raw_institutions or "未提取"
-        raw_dataset = candidate.raw_dataset_size or "未提取"
+        novelty_year_context = _build_novelty_year_context()
 
         return UNIFIED_SCORING_PROMPT_TEMPLATE.format(
             task_domain_options=", ".join(constants.TASK_DOMAIN_OPTIONS),
@@ -672,17 +670,13 @@ class LLMScorer:
             paper_url=candidate.paper_url or "未提供",
             license_type=candidate.license_type or "未知",
             task_type=candidate.task_type or "未识别",
-            introduction_summary=introduction_summary,
-            method_summary=method_summary,
-            evaluation_summary=evaluation_summary,
-            dataset_summary=dataset_summary,
-            baselines_summary=baselines_summary,
-            conclusion_summary=conclusion_summary,
             raw_metrics=raw_metrics,
             raw_baselines=raw_baselines,
             raw_authors=raw_authors,
-            raw_institutions=raw_institutions,
-            raw_dataset_size=raw_dataset,
+            raw_institutions=candidate.raw_institutions or "未提取",
+            raw_dataset_size=candidate.raw_dataset_size or "未提取",
+            **pdf_sections,
+            **novelty_year_context,
         )
 
     @retry(
@@ -697,7 +691,7 @@ class LLMScorer:
         prompt = self._build_prompt(candidate)
         logger.debug("LLM评分prompt长度: %d 字符", len(prompt))
 
-        messages: List[ChatCompletionMessageParam] = [
+        messages: list[ChatCompletionMessageParam] = [
             {
                 "role": "system",
                 "content": (
@@ -722,7 +716,7 @@ class LLMScorer:
         while True:
             response = await asyncio.wait_for(
                 self.client.chat.completions.create(
-                    model=self.settings.openai.model or constants.LLM_MODEL,
+                    model=self.settings.openai.model or constants.LLM_DEFAULT_MODEL,
                     messages=messages,
                     temperature=0.1,
                     max_tokens=4096,  # 增加max_tokens以容纳详细推理
@@ -765,15 +759,8 @@ class LLMScorer:
                     raise
 
             # 检查总推理长度，不足则尝试自愈纠偏
-            total_reasoning_length = (
-                len(extraction.activity_reasoning)
-                + len(extraction.reproducibility_reasoning)
-                + len(extraction.license_reasoning)
-                + len(extraction.novelty_reasoning)
-                + len(extraction.relevance_reasoning)
-                + len(extraction.backend_mgx_reasoning)
-                + len(extraction.backend_engineering_reasoning)
-                + len(extraction.overall_reasoning)
+            total_reasoning_length = sum(
+                len(getattr(extraction, f)) for f in REASONING_FIELD_ORDER
             )
             min_total_chars = constants.LLM_TOTAL_REASONING_MIN_CHARS
             if (
@@ -839,16 +826,15 @@ class LLMScorer:
 
     def _extract_length_violations(
         self, error: ValidationError, payload: dict[str, Any]
-    ) -> Dict[str, Tuple[int, int]]:
+    ) -> dict[str, tuple[int, int]]:
         """从Pydantic错误中提取可自动修复的字符长度问题"""
-        violations: Dict[str, Tuple[int, int]] = {}
+        violations: dict[str, tuple[int, int]] = {}
         for err in error.errors():
             loc = err.get("loc") or ()
             field = loc[0] if loc else None
             if not isinstance(field, str):
                 continue
 
-            min_length: Optional[int] = None
             err_type = err.get("type")
             if err_type == "string_too_short":
                 min_length = err.get("ctx", {}).get("min_length")
@@ -860,32 +846,27 @@ class LLMScorer:
             if not isinstance(min_length, int):
                 continue
 
-            current_value = payload.get(field, "") or ""
-            current_length = len(str(current_value))
+            current_length = len(str(payload.get(field, "") or ""))
             violations[field] = (min_length, current_length)
 
         return violations
 
-    def _build_length_fix_prompt(self, violations: Dict[str, Tuple[int, int]]) -> str:
+    def _build_length_fix_prompt(self, violations: dict[str, tuple[int, int]]) -> str:
         """构造提示语，让LLM扩写字符不足的推理字段"""
-        ordered_fields: List[str] = []
-        for field in REASONING_FIELD_ORDER:
-            if field in violations:
-                ordered_fields.append(field)
-        for field in violations:
-            if field not in ordered_fields:
-                ordered_fields.append(field)
+        # 按预定义顺序排列，未知字段追加到末尾
+        known_order = {f: i for i, f in enumerate(REASONING_FIELD_ORDER)}
+        sorted_fields = sorted(violations, key=lambda f: known_order.get(f, len(known_order)))
 
-        tips = [
+        lines = [
             "上一次的JSON输出未通过校验：以下推理字段字符数不足。",
             "请保留所有字段并重新输出完整JSON，通过补充证据、数据来源、MGX场景影响、潜在风险等方式扩写对应推理段落。",
         ]
-        for field in ordered_fields:
+        for field in sorted_fields:
             required, current = violations[field]
             label = REASONING_FIELD_LABELS.get(field, field)
-            tips.append(f"- {label}: 当前{current}字符，至少{required}字符。")
-        tips.append("只输出符合Schema的纯JSON，不要添加额外解释或省略字段。")
-        return "\n".join(tips)
+            lines.append(f"- {label}: 当前{current}字符，至少{required}字符。")
+        lines.append("只输出符合Schema的纯JSON，不要添加额外解释或省略字段。")
+        return "\n".join(lines)
 
     @staticmethod
     def _autofix_payload_lengths(payload: dict) -> dict:
@@ -899,17 +880,16 @@ class LLMScorer:
         if len(overall) >= min_len:
             return payload
 
-        parts: list[str] = []
-        for key in [
+        dimension_keys = [
             "activity_reasoning",
             "reproducibility_reasoning",
             "license_reasoning",
             "novelty_reasoning",
             "relevance_reasoning",
-        ]:
-            text = (payload.get(key) or "").strip()
-            if text:
-                parts.append(text)
+        ]
+        parts = [
+            t for key in dimension_keys if (t := (payload.get(key) or "").strip())
+        ]
 
         if parts:
             overall_fixed = (
@@ -931,18 +911,14 @@ class LLMScorer:
 
     async def score(self, candidate: RawCandidate) -> ScoredCandidate:
         """评分单个候选项"""
-        # 尝试读取缓存
         extraction = await self._get_cached_score(candidate)
         if not extraction:
             if not self.client:
-                logger.error("OpenAI未配置且无缓存,无法评分: %s", candidate.title[:50])
-                raise RuntimeError("未配置OpenAI且无缓存,无法评分")
-            try:
-                extraction = await self._call_llm(candidate)
-                await self._set_cached_score(candidate, extraction)
-            except Exception as exc:
-                logger.error("LLM评分失败: %s, 候选: %s", exc, candidate.title[:50])
-                raise
+                raise RuntimeError(
+                    f"未配置OpenAI且无缓存,无法评分: {candidate.title[:50]}"
+                )
+            extraction = await self._call_llm(candidate)
+            await self._set_cached_score(candidate, extraction)
 
         return self._to_scored_candidate(candidate, extraction)
 
@@ -952,40 +928,23 @@ class LLMScorer:
         extraction: UnifiedBenchmarkExtraction,
     ) -> ScoredCandidate:
         """将评分结果转换为ScoredCandidate"""
-        # 合并作者信息
+        # 合并LLM抽取与采集器原始数据（LLM优先，占位值回退到采集器）
         authors = extraction.authors or candidate.authors
-        # 合并指标信息
         metrics = extraction.metrics or candidate.evaluation_metrics
-        # 机构信息
         institution = (
             extraction.institution
             if extraction.institution != "Unknown"
             else candidate.raw_institutions
         )
-        # 数据集规模描述
         dataset_size_desc = (
             extraction.dataset_size_description
             if extraction.dataset_size_description != "Not specified"
             else candidate.raw_dataset_size
         )
 
-        # 构建score_reasoning（兼容旧版）
-        score_reasoning = (
-            f"【综合推理】{extraction.overall_reasoning}\n\n"
-            f"【活跃度】{extraction.activity_reasoning}\n\n"
-            f"【可复现性】{extraction.reproducibility_reasoning}\n\n"
-            f"【许可合规】{extraction.license_reasoning}\n\n"
-            f"【新颖性】{extraction.novelty_reasoning}\n\n"
-            f"【MGX适配度】{extraction.relevance_reasoning}"
-        )
-        if extraction.backend_mgx_reasoning:
-            score_reasoning += (
-                f"\n\n【后端MGX相关性】{extraction.backend_mgx_reasoning}\n\n"
-                f"【后端工程价值】{extraction.backend_engineering_reasoning}"
-            )
+        score_reasoning = self._build_score_reasoning(extraction)
 
         return ScoredCandidate(
-            # RawCandidate字段
             title=candidate.title,
             url=candidate.url,
             source=candidate.source,
@@ -1003,36 +962,27 @@ class LLMScorer:
             raw_authors=candidate.raw_authors,
             raw_institutions=candidate.raw_institutions,
             raw_dataset_size=candidate.raw_dataset_size,
-            # Phase 6字段
             paper_url=extraction.paper_url or candidate.paper_url,
             task_type=extraction.task_type,
             license_type=extraction.license_type,
-            evaluation_metrics=extraction.evaluation_metrics
-            or candidate.evaluation_metrics,
-            reproduction_script_url=extraction.reproduction_script_url
-            or candidate.reproduction_script_url,
-            # 5维评分
+            evaluation_metrics=extraction.evaluation_metrics or candidate.evaluation_metrics,
+            reproduction_script_url=extraction.reproduction_script_url or candidate.reproduction_script_url,
             activity_score=extraction.activity_score,
             reproducibility_score=extraction.reproducibility_score,
             license_score=extraction.license_score,
             novelty_score=extraction.novelty_score,
             relevance_score=extraction.relevance_score,
-            # 兼容旧版score_reasoning
             score_reasoning=score_reasoning,
-            # 新增详细推理字段
             activity_reasoning=extraction.activity_reasoning,
             reproducibility_reasoning=extraction.reproducibility_reasoning,
             license_reasoning=extraction.license_reasoning,
             novelty_reasoning=extraction.novelty_reasoning,
             relevance_reasoning=extraction.relevance_reasoning,
-            # 后端专项评分
             backend_mgx_relevance=extraction.backend_mgx_relevance,
             backend_mgx_reasoning=extraction.backend_mgx_reasoning,
             backend_engineering_value=extraction.backend_engineering_value,
             backend_engineering_reasoning=extraction.backend_engineering_reasoning,
-            # 综合推理
             overall_reasoning=extraction.overall_reasoning,
-            # Phase 8字段
             task_domain=extraction.task_domain,
             metrics=metrics,
             baselines=extraction.baselines,
@@ -1041,9 +991,25 @@ class LLMScorer:
             dataset_size_description=dataset_size_desc,
         )
 
+    @staticmethod
+    def _build_score_reasoning(extraction: UnifiedBenchmarkExtraction) -> str:
+        """构建兼容旧版的score_reasoning文本"""
+        parts = [
+            f"【综合推理】{extraction.overall_reasoning}",
+            f"【活跃度】{extraction.activity_reasoning}",
+            f"【可复现性】{extraction.reproducibility_reasoning}",
+            f"【许可合规】{extraction.license_reasoning}",
+            f"【新颖性】{extraction.novelty_reasoning}",
+            f"【MGX适配度】{extraction.relevance_reasoning}",
+        ]
+        if extraction.backend_mgx_reasoning:
+            parts.append(f"【后端MGX相关性】{extraction.backend_mgx_reasoning}")
+            parts.append(f"【后端工程价值】{extraction.backend_engineering_reasoning}")
+        return "\n\n".join(parts)
+
     async def score_batch(
-        self, candidates: List[RawCandidate]
-    ) -> List[ScoredCandidate]:
+        self, candidates: list[RawCandidate]
+    ) -> list[ScoredCandidate]:
         """批量评分（并发控制）"""
         if not candidates:
             return []

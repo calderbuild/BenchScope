@@ -3,16 +3,14 @@
 from __future__ import annotations
 
 import logging
-from typing import Awaitable, Callable, List, Optional, TypeVar
+from typing import List, Optional
 
 from src.common import constants
 from src.models import ScoredCandidate
-from src.storage.feishu_storage import FeishuAPIError, FeishuStorage
+from src.storage.feishu_storage import FeishuStorage
 from src.storage.sqlite_fallback import SQLiteFallback
 
 logger = logging.getLogger(__name__)
-
-T = TypeVar("T")
 
 
 class StorageManager:
@@ -26,32 +24,8 @@ class StorageManager:
         self.feishu = feishu or FeishuStorage()
         self.sqlite = sqlite or SQLiteFallback()
 
-    async def _with_token_retry(self, operation: Callable[[], Awaitable[T]]) -> T:
-        """封装token刷新重试逻辑
-
-        Args:
-            operation: 异步操作函数
-
-        Returns:
-            操作结果
-
-        Raises:
-            FeishuAPIError: token刷新后仍失败时抛出
-        """
-        try:
-            return await operation()
-        except FeishuAPIError as exc:
-            if "access_token不存在" not in str(exc):
-                raise
-            logger.warning("飞书token缺失，自动刷新后重试")
-            await self.feishu._ensure_access_token()
-            return await operation()
-
     async def save(self, candidates: List[ScoredCandidate]) -> List[ScoredCandidate]:
         """主备存储策略
-
-        Args:
-            candidates: 待写入的候选列表
 
         Returns:
             实际写入的候选列表（飞书去重后），用于后续通知
@@ -61,9 +35,7 @@ class StorageManager:
             return []
 
         try:
-            actually_saved = await self._with_token_retry(
-                lambda: self.feishu.save(candidates)
-            )
+            actually_saved = await self.feishu.save(candidates)
             logger.info(
                 "飞书存储成功: %d条 (新增%d条)", len(candidates), len(actually_saved)
             )
@@ -85,7 +57,7 @@ class StorageManager:
 
         logger.info("发现%d条未同步记录", len(pending))
         try:
-            await self._with_token_retry(lambda: self.feishu.save(pending))
+            await self.feishu.save(pending)
             await self.sqlite.mark_synced([item.url for item in pending])
             logger.info("同步完成: %d条", len(pending))
         except Exception as exc:  # noqa: BLE001
